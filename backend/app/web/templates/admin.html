@@ -1,20 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SchoolRun 管理后台</title>
     <style>
         :root {
             --bg: #f4efe6;
-            --panel: rgba(255, 255, 255, 0.88);
+            --panel: rgba(255, 255, 255, 0.92);
             --ink: #182430;
-            --muted: #66727e;
+            --muted: #687684;
             --accent: #0b7a75;
             --accent-strong: #095c59;
             --danger: #b42318;
             --line: rgba(24, 36, 48, 0.12);
-            --shadow: 0 18px 45px rgba(24, 36, 48, 0.08);
+            --shadow: 0 20px 48px rgba(24, 36, 48, 0.08);
             --radius: 20px;
         }
 
@@ -22,23 +22,24 @@
 
         body {
             margin: 0;
-            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            min-height: 100vh;
             color: var(--ink);
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
             background:
                 radial-gradient(circle at top left, rgba(11, 122, 117, 0.18), transparent 32%),
                 radial-gradient(circle at bottom right, rgba(180, 35, 24, 0.12), transparent 28%),
                 linear-gradient(135deg, #f7f2e7, #eef5f4);
-            min-height: 100vh;
         }
 
         .shell {
-            width: min(1180px, calc(100% - 32px));
+            width: min(1200px, calc(100% - 32px));
             margin: 24px auto;
             display: grid;
             gap: 20px;
         }
 
-        .hero, .panel {
+        .hero,
+        .panel {
             background: var(--panel);
             border: 1px solid var(--line);
             border-radius: var(--radius);
@@ -50,7 +51,7 @@
             padding: 26px 28px;
             display: flex;
             justify-content: space-between;
-            align-items: end;
+            align-items: flex-end;
             gap: 16px;
         }
 
@@ -79,15 +80,17 @@
 
         .layout {
             display: grid;
-            grid-template-columns: 280px minmax(0, 1fr);
+            grid-template-columns: 300px minmax(0, 1fr);
             gap: 20px;
         }
 
-        .sidebar, .content {
+        .sidebar,
+        .content {
             padding: 20px;
         }
 
-        .sidebar h2, .content h2 {
+        .sidebar h2,
+        .content h2 {
             margin: 0 0 14px;
             font-size: 18px;
         }
@@ -134,21 +137,25 @@
         .danger:hover,
         .ghost:hover {
             transform: translateY(-1px);
-            opacity: 0.95;
+            opacity: 0.96;
         }
 
-        .login {
+        form.login {
             display: grid;
             gap: 12px;
             margin-top: 18px;
         }
 
         label {
+            display: block;
+            margin-bottom: 6px;
             font-size: 13px;
             font-weight: 600;
         }
 
-        input, textarea, select {
+        input,
+        textarea,
+        select {
             width: 100%;
             border: 1px solid var(--line);
             border-radius: 14px;
@@ -263,10 +270,17 @@
             color: var(--muted);
         }
 
-        .status.error { color: var(--danger); }
-        .status.success { color: var(--accent-strong); }
+        .status.error {
+            color: var(--danger);
+        }
 
-        .hidden { display: none !important; }
+        .status.success {
+            color: var(--accent-strong);
+        }
+
+        .hidden {
+            display: none !important;
+        }
 
         .empty {
             padding: 20px;
@@ -285,7 +299,7 @@
         @media (max-width: 640px) {
             .hero {
                 padding: 22px 20px;
-                align-items: start;
+                align-items: flex-start;
                 flex-direction: column;
             }
 
@@ -301,7 +315,7 @@
             <div>
                 <div class="badge">SchoolRun · 管理后台</div>
                 <h1>共享内容管理面板</h1>
-                <p>统一管理别人上传的共享路线与共享 NFC，支持查看、修改、删除。</p>
+                <p>统一管理用户上传的共享路线与共享 NFC，支持查看、修改、删除。</p>
             </div>
             <div class="muted">当前账号：{{ admin_username if authenticated else '未登录' }}</div>
         </section>
@@ -313,24 +327,24 @@
                     <p class="muted">登录后可以切换资源类型，并对记录进行编辑或删除。</p>
 
                     <div id="login-block" class="{{ 'hidden' if authenticated else '' }}">
-                        <div class="login">
+                        <form id="login-form" class="login">
                             <div>
                                 <label for="login-username">管理员账号</label>
-                                <input id="login-username" type="text" placeholder="请输入账号" />
+                                <input id="login-username" name="username" type="text" placeholder="请输入账号" autocomplete="username">
                             </div>
                             <div>
                                 <label for="login-password">管理员密码</label>
-                                <input id="login-password" type="password" placeholder="请输入密码" />
+                                <input id="login-password" name="password" type="password" placeholder="请输入密码" autocomplete="current-password">
                             </div>
-                            <button id="login-button" class="primary">登录后台</button>
-                        </div>
+                            <button id="login-button" class="primary" type="submit">登录后台</button>
+                        </form>
                     </div>
 
                     <div id="nav-block" class="{{ '' if authenticated else 'hidden' }}">
                         <div class="nav">
-                            <button data-tab="routes" class="active">共享路线</button>
-                            <button data-tab="nfc">共享 NFC</button>
-                            <button id="logout-button" class="danger">退出登录</button>
+                            <button data-tab="routes" class="active" type="button">共享路线</button>
+                            <button data-tab="nfc" type="button">共享 NFC</button>
+                            <button id="logout-button" class="danger" type="button">退出登录</button>
                         </div>
                     </div>
 
@@ -343,7 +357,7 @@
                             <h2 id="panel-title">共享路线</h2>
                             <div class="muted" id="panel-subtitle">可修改路线名称、隐私状态和点位 JSON。</div>
                         </div>
-                        <button id="refresh-button" class="ghost {{ '' if authenticated else 'hidden' }}">刷新列表</button>
+                        <button id="refresh-button" class="ghost {{ '' if authenticated else 'hidden' }}" type="button">刷新列表</button>
                     </div>
 
                     <div id="panel-status" class="status"></div>
@@ -361,7 +375,7 @@
 
         const loginBlock = document.getElementById('login-block');
         const navBlock = document.getElementById('nav-block');
-        const loginButton = document.getElementById('login-button');
+        const loginForm = document.getElementById('login-form');
         const logoutButton = document.getElementById('logout-button');
         const refreshButton = document.getElementById('refresh-button');
         const sideStatus = document.getElementById('side-status');
@@ -385,8 +399,11 @@
             });
         });
 
-        if (loginButton) {
-            loginButton.addEventListener('click', login);
+        if (loginForm) {
+            loginForm.addEventListener('submit', event => {
+                event.preventDefault();
+                login();
+            });
         }
 
         if (logoutButton) {
@@ -424,6 +441,7 @@
                 setStatus(sideStatus, payload.detail || '登录失败', 'error');
                 return;
             }
+
             state.authenticated = true;
             loginBlock.classList.add('hidden');
             navBlock.classList.remove('hidden');
@@ -469,7 +487,7 @@
             }
 
             panelContent.innerHTML = items.map(route => renderRouteCard(route)).join('');
-            bindRouteActions(items);
+            bindRouteActions();
             setStatus(panelStatus, `已加载 ${items.length} 条共享路线`, 'success');
         }
 
@@ -489,7 +507,7 @@
             }
 
             panelContent.innerHTML = items.map(entry => renderNfcCard(entry)).join('');
-            bindNfcActions(items);
+            bindNfcActions();
             setStatus(panelStatus, `已加载 ${items.length} 条共享 NFC`, 'success');
         }
 
@@ -510,14 +528,14 @@
                         </div>
                     </div>
                     <div class="card-actions">
-                        <button class="ghost action" data-action="toggle-edit">编辑</button>
-                        <button class="danger action" data-action="delete">删除</button>
+                        <button class="ghost action" data-action="toggle-edit" type="button">编辑</button>
+                        <button class="danger action" data-action="delete" type="button">删除</button>
                     </div>
                     <div class="editor">
                         <div class="row">
                             <div>
                                 <label>路线名称</label>
-                                <input type="text" data-field="name" value="${escapeAttribute(route.name)}" />
+                                <input type="text" data-field="name" value="${escapeAttribute(route.name)}">
                             </div>
                             <div>
                                 <label>隐私模式</label>
@@ -532,7 +550,7 @@
                             <textarea data-field="points">${pointsJson}</textarea>
                         </div>
                         <div class="card-actions">
-                            <button class="primary action" data-action="save">保存修改</button>
+                            <button class="primary action" data-action="save" type="button">保存修改</button>
                         </div>
                     </div>
                 </article>
@@ -552,30 +570,30 @@
                     </div>
                     <div class="muted">${escapeHtml(entry.url)}</div>
                     <div class="card-actions">
-                        <button class="ghost action" data-action="toggle-edit">编辑</button>
-                        <button class="danger action" data-action="delete">删除</button>
+                        <button class="ghost action" data-action="toggle-edit" type="button">编辑</button>
+                        <button class="danger action" data-action="delete" type="button">删除</button>
                     </div>
                     <div class="editor">
                         <div class="row">
                             <div>
                                 <label>名称</label>
-                                <input type="text" data-field="name" value="${escapeAttribute(entry.name)}" />
+                                <input type="text" data-field="name" value="${escapeAttribute(entry.name)}">
                             </div>
                             <div>
                                 <label>来源</label>
-                                <input type="text" data-field="source" value="${escapeAttribute(entry.source || 'manual')}" />
+                                <input type="text" data-field="source" value="${escapeAttribute(entry.source || 'manual')}">
                             </div>
                         </div>
                         <div>
                             <label>URL</label>
-                            <input type="text" data-field="url" value="${escapeAttribute(entry.url)}" />
+                            <input type="text" data-field="url" value="${escapeAttribute(entry.url)}">
                         </div>
                         <div>
                             <label>应用包名</label>
-                            <input type="text" data-field="packageName" value="${escapeAttribute(entry.packageName)}" />
+                            <input type="text" data-field="packageName" value="${escapeAttribute(entry.packageName)}">
                         </div>
                         <div class="card-actions">
-                            <button class="primary action" data-action="save">保存修改</button>
+                            <button class="primary action" data-action="save" type="button">保存修改</button>
                         </div>
                     </div>
                 </article>
@@ -602,7 +620,10 @@
 
             card.querySelector('[data-action="delete"]').addEventListener('click', async () => {
                 const resourceId = card.dataset.routeId || card.dataset.nfcId;
-                if (!confirm(`确认删除 ${resourceId} 吗？`)) return;
+                if (!confirm(`确认删除 ${resourceId} 吗？`)) {
+                    return;
+                }
+
                 const response = await fetch(basePath + resourceId, {
                     method: 'DELETE',
                     credentials: 'same-origin'
@@ -612,6 +633,7 @@
                     setStatus(panelStatus, payload.detail || payload.message || '删除失败', 'error');
                     return;
                 }
+
                 setStatus(panelStatus, payload.message || '删除成功', 'success');
                 loadCurrentTab();
             });
@@ -637,6 +659,7 @@
                     setStatus(panelStatus, payload.detail || '保存失败', 'error');
                     return;
                 }
+
                 setStatus(panelStatus, '保存成功', 'success');
                 loadCurrentTab();
             });
@@ -650,6 +673,7 @@
                     points: JSON.parse(card.querySelector('[data-field="points"]').value.trim())
                 };
             }
+
             return {
                 name: card.querySelector('[data-field="name"]').value.trim(),
                 url: card.querySelector('[data-field="url"]').value.trim(),
@@ -664,7 +688,7 @@
                 .replaceAll('<', '&lt;')
                 .replaceAll('>', '&gt;')
                 .replaceAll('"', '&quot;')
-                .replaceAll(\"'\", '&#39;');
+                .replaceAll("'", '&#39;');
         }
 
         function escapeAttribute(value) {

@@ -6,9 +6,6 @@ from app.application.schemas.admin_schemas import (
     AdminLoginRequest,
     AdminSessionResponse,
 )
-from app.application.services.admin_auth_service import AdminAuthService
-from app.application.services.admin_nfc_service import AdminNfcService
-from app.application.services.admin_route_service import AdminRouteService
 from app.application.schemas.nfc_schemas import (
     CreateSharedNfcRequest,
     SharedNfcEnvelope,
@@ -19,6 +16,9 @@ from app.application.schemas.route_schemas import (
     SharedRouteAdminListEnvelope,
     SharedRouteDetailEnvelope,
 )
+from app.application.services.admin_auth_service import AdminAuthService
+from app.application.services.admin_nfc_service import AdminNfcService
+from app.application.services.admin_route_service import AdminRouteService
 from app.core.exceptions import ResourceNotFoundError
 from app.web.auth import ADMIN_SESSION_KEY, require_admin_session
 
@@ -33,6 +33,7 @@ def admin_login(request: Request, payload: AdminLoginRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"detail": "账号或密码错误"},
         )
+
     request.session[ADMIN_SESSION_KEY] = payload.username
     return AdminSessionResponse(authenticated=True, username=payload.username)
 
@@ -63,7 +64,10 @@ def admin_update_route(route_id: str, payload: CreateSharedRouteRequest, request
     try:
         route = route_service.update_route(route_id, payload)
     except ResourceNotFoundError as exception:
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": str(exception)})
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": str(exception)},
+        )
     return SharedRouteDetailEnvelope(data=route)
 
 
@@ -74,7 +78,10 @@ def admin_delete_route(route_id: str, request: Request):
     try:
         route_service.delete_route(route_id)
     except ResourceNotFoundError as exception:
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": str(exception)})
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": str(exception)},
+        )
     return ActionMessageResponse(message="共享路线已删除")
 
 
@@ -92,7 +99,10 @@ def admin_update_nfc(entry_id: str, payload: CreateSharedNfcRequest, request: Re
     try:
         entry = nfc_service.update_entry(entry_id, payload)
     except ResourceNotFoundError as exception:
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": str(exception)})
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": str(exception)},
+        )
     return SharedNfcEnvelope(data=entry)
 
 
@@ -103,5 +113,8 @@ def admin_delete_nfc(entry_id: str, request: Request):
     try:
         nfc_service.delete_entry(entry_id)
     except ResourceNotFoundError as exception:
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": str(exception)})
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": str(exception)},
+        )
     return ActionMessageResponse(message="共享 NFC 已删除")

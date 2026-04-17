@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -20,3 +20,8 @@ def admin_page(request: Request):
             "admin_username": request.session.get("admin_username"),
         },
     )
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
