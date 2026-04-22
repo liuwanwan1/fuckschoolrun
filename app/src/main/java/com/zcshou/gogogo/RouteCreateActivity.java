@@ -1,6 +1,12 @@
 package com.acooldog.toolbox;
 
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.View;
@@ -10,17 +16,21 @@ import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.RadioGroup;
 import android.widget.SearchView;
 import android.widget.SimpleAdapter;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.acooldog.toolbox.route.domain.model.RouteDefinition;
 import com.acooldog.toolbox.route.domain.model.RoutePoint;
+import com.acooldog.toolbox.route.domain.model.RouteShareInfo;
 import com.acooldog.toolbox.route.presentation.RouteCreateViewModel;
 import com.acooldog.toolbox.route.presentation.RouteModule;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
@@ -32,9 +42,11 @@ import com.baidu.location.BDLocation;
 import com.baidu.location.LocationClient;
 import com.baidu.location.LocationClientOption;
 import com.baidu.mapapi.map.BaiduMap;
+import com.baidu.mapapi.map.BitmapDescriptor;
 import com.baidu.mapapi.map.BitmapDescriptorFactory;
 import com.baidu.mapapi.map.MapStatusUpdateFactory;
 import com.baidu.mapapi.map.MapView;
+import com.baidu.mapapi.map.Marker;
 import com.baidu.mapapi.map.MarkerOptions;
 import com.baidu.mapapi.map.OverlayOptions;
 import com.baidu.mapapi.map.PolylineOptions;
@@ -59,21 +71,70 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class RouteCreateActivity extends BaseActivity {
+    public static final String EXTRA_EDIT_ROUTE_ID = "edit_route_id";
+
     private static final String POI_NAME = "poi_name";
     private static final String POI_ADDRESS = "poi_address";
     private static final String POI_LONGITUDE = "poi_longitude";
     private static final String POI_LATITUDE = "poi_latitude";
+    private static final String PREF_ROUTE_RECORD_INTERVAL_SECONDS = "pref_route_record_interval_seconds";
+    private static final String PREF_ROUTE_CREATE = "route_create_prefs";
+    private static final String MARKER_INDEX_KEY = "marker_index";
+    private static final double DEFAULT_ALTITUDE = 55d;
+    private static final float DEFAULT_ZOOM_LEVEL = 18f;
+    private static final int DEFAULT_RECORD_INTERVAL_SECONDS = 3;
+    private static final int MIN_RECORD_INTERVAL_SECONDS = 1;
+    private static final int LOCATION_REFRESH_INTERVAL_MS = 1000;
+    private static final int TOOL_MODE_DRAW = 0;
+    private static final int TOOL_MODE_EDIT = 1;
 
     private MapView mapView;
     private BaiduMap baiduMap;
     private RouteCreateViewModel viewModel;
     private LocationClient locationClient;
     private LatLng currentLocation;
+    private BDLocation lastLocationFix;
     private ExecutorService ioExecutor;
     private PoiSearch poiSearch;
     private String currentCity = "";
     private LinearLayout searchResultContainer;
     private ListView searchResultList;
+    private TextView routeHintView;
+    private TextView selectedPointView;
+    private Button clearButton;
+    private Button saveButton;
+    private Button shareButton;
+    private Button recordButton;
+    private Button drawToolButton;
+    private Button editToolButton;
+    private Button keepToolButton;
+    private Button deleteToolButton;
+    private ImageButton toggleToolButton;
+    private LinearLayout toolboxPanel;
+    private SwitchCompat recordModeSwitch;
+    private boolean updatingRecordModeSwitch;
+    private boolean isRecording;
+    private boolean hasCenteredOnLocation;
+    private int recordIntervalSeconds;
+    private int toolMode = TOOL_MODE_DRAW;
+    private int selectedPointIndex = -1;
+    private boolean toolboxCollapsed;
+    private String editingRouteId;
+    private String editingRouteName;
+    private RouteShareInfo editingShareInfo = RouteShareInfo.NONE;
+    private BitmapDescriptor routeVertexDescriptor;
+    private BitmapDescriptor routeVertexSelectedDescriptor;
+    private final Handler recordHandler = new Handler(Looper.getMainLooper());
+    private final Runnable recordRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isRecording) {
+                return;
+            }
+            appendRecordedLocation(lastLocationFix);
+            recordHandler.postDelayed(this, recordIntervalSeconds * 1000L);
+        }
+    };
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -89,12 +150,16 @@ public class RouteCreateActivity extends BaseActivity {
         mapView = findViewById(R.id.map_create);
         baiduMap = mapView.getMap();
         ioExecutor = Executors.newSingleThreadExecutor();
+        recordIntervalSeconds = getSharedPreferences(PREF_ROUTE_CREATE, MODE_PRIVATE)
+                .getInt(PREF_ROUTE_RECORD_INTERVAL_SECONDS, DEFAULT_RECORD_INTERVAL_SECONDS);
 
         initMap();
         initButtons();
         initSearch();
         initLocationClient();
         observeRoutePoints();
+        loadEditingRouteIfNeeded();
+        updateCreateModeUi();
     }
 
     @Override
@@ -111,6 +176,7 @@ public class RouteCreateActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        stopRecordScheduler();
         if (locationClient != null) {
             locationClient.stop();
         }
@@ -120,29 +186,49 @@ public class RouteCreateActivity extends BaseActivity {
         if (ioExecutor != null) {
             ioExecutor.shutdownNow();
         }
+        recycleMarkerDescriptors();
         mapView.onDestroy();
         super.onDestroy();
     }
 
     @Override
     public boolean onSupportNavigateUp() {
+        if (isRecording) {
+            GoUtils.DisplayToast(this, getString(R.string.route_record_exit_while_recording));
+            return true;
+        }
         finish();
         return true;
     }
 
+    @Override
+    public void onBackPressed() {
+        if (isRecording) {
+            GoUtils.DisplayToast(this, getString(R.string.route_record_exit_while_recording));
+            return;
+        }
+        super.onBackPressed();
+    }
+
     private void initMap() {
+        mapView.showZoomControls(false);
+        baiduMap.setMapType(BaiduMap.MAP_TYPE_NORMAL);
         baiduMap.setOnMapClickListener(new BaiduMap.OnMapClickListener() {
             @Override
             public void onMapClick(LatLng latLng) {
-                double[] wgsCoordinates = MapUtils.bd2wgs(latLng.longitude, latLng.latitude);
-                viewModel.addPoint(new RoutePoint(
-                        latLng.longitude,
-                        latLng.latitude,
-                        wgsCoordinates[0],
-                        wgsCoordinates[1],
-                        55d
-                ));
-                searchResultContainer.setVisibility(View.GONE);
+                if (searchResultContainer != null) {
+                    searchResultContainer.setVisibility(View.GONE);
+                }
+                if (isRecordModeEnabled()) {
+                    return;
+                }
+                if (toolMode == TOOL_MODE_EDIT) {
+                    selectedPointIndex = -1;
+                    updateCreateModeUi();
+                    drawRoute(viewModel.getCurrentPoints());
+                    return;
+                }
+                viewModel.addPoint(buildRoutePoint(latLng, DEFAULT_ALTITUDE));
             }
 
             @Override
@@ -150,18 +236,86 @@ public class RouteCreateActivity extends BaseActivity {
                 // No-op.
             }
         });
+        baiduMap.setOnMarkerClickListener(this::handleMarkerClick);
+    }
+
+    private boolean handleMarkerClick(Marker marker) {
+        if (isRecordModeEnabled() || toolMode != TOOL_MODE_EDIT) {
+            return false;
+        }
+        if (marker == null || marker.getExtraInfo() == null) {
+            return false;
+        }
+        selectedPointIndex = marker.getExtraInfo().getInt(MARKER_INDEX_KEY, -1);
+        updateCreateModeUi();
+        drawRoute(viewModel.getCurrentPoints());
+        return true;
     }
 
     private void initButtons() {
-        Button clearButton = findViewById(R.id.btn_create_clear);
-        Button saveButton = findViewById(R.id.btn_create_save);
-        Button shareButton = findViewById(R.id.btn_create_share);
+        routeHintView = findViewById(R.id.route_create_hint);
+        selectedPointView = findViewById(R.id.route_create_selected_point);
+        clearButton = findViewById(R.id.btn_create_clear);
+        saveButton = findViewById(R.id.btn_create_save);
+        shareButton = findViewById(R.id.btn_create_share);
+        recordButton = findViewById(R.id.btn_create_record);
+        recordModeSwitch = findViewById(R.id.switch_create_record_mode);
+        drawToolButton = findViewById(R.id.btn_create_tool_draw);
+        editToolButton = findViewById(R.id.btn_create_tool_edit);
+        keepToolButton = findViewById(R.id.btn_create_tool_keep);
+        deleteToolButton = findViewById(R.id.btn_create_tool_delete);
+        toggleToolButton = findViewById(R.id.btn_create_tool_toggle);
+        toolboxPanel = findViewById(R.id.route_create_toolbox_panel);
+        ImageButton recordSettingsButton = findViewById(R.id.btn_create_record_settings);
         ImageButton locationButton = findViewById(R.id.btn_create_location);
+        RadioGroup mapTypeGroup = findViewById(R.id.route_create_map_type_group);
 
-        clearButton.setOnClickListener(v -> viewModel.clear());
+        mapTypeGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            if (checkedId == R.id.route_create_map_normal) {
+                baiduMap.setMapType(BaiduMap.MAP_TYPE_NORMAL);
+            } else if (checkedId == R.id.route_create_map_satellite) {
+                baiduMap.setMapType(BaiduMap.MAP_TYPE_SATELLITE);
+            }
+        });
+
+        clearButton.setOnClickListener(v -> {
+            if (isRecording) {
+                return;
+            }
+            selectedPointIndex = -1;
+            viewModel.clear();
+            updateCreateModeUi();
+        });
         saveButton.setOnClickListener(v -> showSaveDialog());
         shareButton.setOnClickListener(v -> showShareDialog());
+        recordButton.setOnClickListener(v -> toggleRecording());
+        recordSettingsButton.setOnClickListener(v -> showRecordSettingsDialog());
         locationButton.setOnClickListener(v -> moveToCurrentLocation());
+        drawToolButton.setOnClickListener(v -> switchToolMode(TOOL_MODE_DRAW));
+        editToolButton.setOnClickListener(v -> switchToolMode(TOOL_MODE_EDIT));
+        keepToolButton.setOnClickListener(v -> clearSelectedPoint());
+        deleteToolButton.setOnClickListener(v -> deleteSelectedPoint());
+        toggleToolButton.setOnClickListener(v -> {
+            toolboxCollapsed = !toolboxCollapsed;
+            updateCreateModeUi();
+        });
+        recordModeSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (updatingRecordModeSwitch) {
+                return;
+            }
+            if (isRecording && !isChecked) {
+                updatingRecordModeSwitch = true;
+                recordModeSwitch.setChecked(true);
+                updatingRecordModeSwitch = false;
+                GoUtils.DisplayToast(this, getString(R.string.route_record_exit_while_recording));
+                return;
+            }
+            if (isChecked) {
+                switchToolMode(TOOL_MODE_DRAW);
+            } else {
+                updateCreateModeUi();
+            }
+        });
     }
 
     private void initSearch() {
@@ -211,10 +365,10 @@ public class RouteCreateActivity extends BaseActivity {
         });
 
         searchResultList.setOnItemClickListener((parent, view, position, id) -> {
-            String lng = ((android.widget.TextView) view.findViewById(R.id.poi_longitude)).getText().toString();
-            String lat = ((android.widget.TextView) view.findViewById(R.id.poi_latitude)).getText().toString();
+            String lng = ((TextView) view.findViewById(R.id.poi_longitude)).getText().toString();
+            String lat = ((TextView) view.findViewById(R.id.poi_latitude)).getText().toString();
             LatLng target = new LatLng(Double.parseDouble(lat), Double.parseDouble(lng));
-            baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLngZoom(target, 18f));
+            baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLngZoom(target, DEFAULT_ZOOM_LEVEL));
             searchResultContainer.setVisibility(View.GONE);
         });
 
@@ -291,46 +445,123 @@ public class RouteCreateActivity extends BaseActivity {
                 if (bdLocation == null || bdLocation.getLatitude() == 0 || bdLocation.getLongitude() == 0) {
                     return;
                 }
+                lastLocationFix = bdLocation;
                 currentLocation = new LatLng(bdLocation.getLatitude(), bdLocation.getLongitude());
                 if (!TextUtils.isEmpty(bdLocation.getCity())) {
                     currentCity = bdLocation.getCity();
                 }
-                baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLngZoom(currentLocation, 18f));
+                if (!hasCenteredOnLocation) {
+                    hasCenteredOnLocation = true;
+                    baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLngZoom(currentLocation, DEFAULT_ZOOM_LEVEL));
+                } else if (isRecording) {
+                    baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLng(currentLocation));
+                }
             }
         });
         LocationClientOption option = new LocationClientOption();
-        option.setOpenGps(true);
+        option.setLocationMode(LocationClientOption.LocationMode.Hight_Accuracy);
+        option.setOpenGnss(true);
         option.setCoorType("bd09ll");
-        option.setScanSpan(0);
+        option.setScanSpan(LOCATION_REFRESH_INTERVAL_MS);
+        option.setIsNeedAddress(true);
+        option.setLocationNotify(true);
+        option.setIgnoreKillProcess(true);
+        option.SetIgnoreCacheException(true);
+        option.setIsNeedAltitude(true);
         locationClient.setLocOption(option);
         locationClient.start();
     }
 
     private void observeRoutePoints() {
         viewModel.getRoutePoints().observe(this, routePoints -> {
-            baiduMap.clear();
-            if (routePoints == null || routePoints.isEmpty()) {
-                return;
+            if (selectedPointIndex >= routePoints.size()) {
+                selectedPointIndex = -1;
             }
-
-            List<LatLng> latLngs = new ArrayList<>();
-            for (RoutePoint routePoint : routePoints) {
-                LatLng latLng = new LatLng(routePoint.getBdLatitude(), routePoint.getBdLongitude());
-                latLngs.add(latLng);
-                baiduMap.addOverlay(new MarkerOptions()
-                        .position(latLng)
-                        .icon(BitmapDescriptorFactory.fromResource(R.drawable.icon_gcoding)));
-            }
-
-            if (latLngs.size() > 1) {
-                OverlayOptions polyline = new PolylineOptions()
-                        .width(8)
-                        .color(0xAA2E7D32)
-                        .points(latLngs);
-                baiduMap.addOverlay(polyline);
-            }
-            baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLng(latLngs.get(latLngs.size() - 1)));
+            drawRoute(routePoints);
+            updateCreateModeUi();
         });
+    }
+
+    private void loadEditingRouteIfNeeded() {
+        String routeId = getIntent().getStringExtra(EXTRA_EDIT_ROUTE_ID);
+        if (TextUtils.isEmpty(routeId)) {
+            return;
+        }
+        RouteDefinition routeDefinition = findLocalRoute(routeId);
+        if (routeDefinition == null) {
+            GoUtils.DisplayToast(this, getString(R.string.route_edit_missing));
+            finish();
+            return;
+        }
+        editingRouteId = routeDefinition.getId();
+        editingRouteName = routeDefinition.getName();
+        editingShareInfo = routeDefinition.getShareInfo();
+        viewModel.setPoints(routeDefinition.getPoints());
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            actionBar.setTitle(R.string.route_edit_title);
+        }
+        routeHintView.setText(R.string.route_edit_loaded);
+    }
+
+    @Nullable
+    private RouteDefinition findLocalRoute(@NonNull String routeId) {
+        for (RouteDefinition routeDefinition : getLocalRoutes()) {
+            if (routeId.equals(routeDefinition.getId())) {
+                return routeDefinition;
+            }
+        }
+        return null;
+    }
+
+    private void drawRoute(@Nullable List<RoutePoint> routePoints) {
+        baiduMap.clear();
+        if (routePoints == null || routePoints.isEmpty()) {
+            return;
+        }
+
+        List<LatLng> latLngs = new ArrayList<>(routePoints.size());
+        for (RoutePoint routePoint : routePoints) {
+            latLngs.add(new LatLng(routePoint.getBdLatitude(), routePoint.getBdLongitude()));
+        }
+
+        if (latLngs.size() > 1) {
+            OverlayOptions polyline = new PolylineOptions()
+                    .width(8)
+                    .color(0xAA2E7D32)
+                    .points(latLngs);
+            baiduMap.addOverlay(polyline);
+        }
+
+        if (toolMode == TOOL_MODE_EDIT && !isRecordModeEnabled()) {
+            for (int index = 0; index < latLngs.size(); index++) {
+                MarkerOptions markerOptions = new MarkerOptions()
+                        .position(latLngs.get(index))
+                        .icon(index == selectedPointIndex
+                                ? getSelectedRouteVertexDescriptor()
+                                : getRouteVertexDescriptor());
+                android.os.Bundle bundle = new android.os.Bundle();
+                bundle.putInt(MARKER_INDEX_KEY, index);
+                markerOptions.extraInfo(bundle);
+                baiduMap.addOverlay(markerOptions);
+            }
+        } else {
+            LatLng firstPoint = latLngs.get(0);
+            LatLng lastPoint = latLngs.get(latLngs.size() - 1);
+            baiduMap.addOverlay(new MarkerOptions()
+                    .position(firstPoint)
+                    .icon(getRouteVertexDescriptor()));
+            if (latLngs.size() > 1) {
+                baiduMap.addOverlay(new MarkerOptions()
+                        .position(lastPoint)
+                        .icon(getSelectedRouteVertexDescriptor()));
+            }
+        }
+
+        LatLng target = selectedPointIndex >= 0 && selectedPointIndex < latLngs.size()
+                ? latLngs.get(selectedPointIndex)
+                : latLngs.get(latLngs.size() - 1);
+        baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLng(target));
     }
 
     private void moveToCurrentLocation() {
@@ -338,10 +569,228 @@ public class RouteCreateActivity extends BaseActivity {
             GoUtils.DisplayToast(this, "正在定位，请稍后重试");
             return;
         }
-        baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLngZoom(currentLocation, 18f));
+        baiduMap.animateMapStatus(MapStatusUpdateFactory.newLatLngZoom(currentLocation, DEFAULT_ZOOM_LEVEL));
+    }
+
+    private void toggleRecording() {
+        if (isRecording) {
+            stopRecording();
+            return;
+        }
+        if (recordModeSwitch == null || !recordModeSwitch.isChecked()) {
+            return;
+        }
+
+        isRecording = true;
+        appendRecordedLocation(lastLocationFix);
+        startRecordScheduler();
+        updateCreateModeUi();
+        GoUtils.DisplayToast(
+                this,
+                getString(lastLocationFix == null ? R.string.route_record_waiting_location : R.string.route_record_started)
+        );
+    }
+
+    private void stopRecording() {
+        isRecording = false;
+        stopRecordScheduler();
+        updateCreateModeUi();
+        if (!viewModel.canSave()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_record_need_points));
+            return;
+        }
+        showRecordingStopDialog();
+    }
+
+    private void showRecordingStopDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_record_stop_dialog_title)
+                .setMessage(R.string.route_record_stop_dialog_message)
+                .setPositiveButton(R.string.route_record_stop_save_option, (dialog, which) -> showSaveDialog())
+                .setNeutralButton(
+                        R.string.route_record_stop_share_option,
+                        (dialog, which) -> showShareDetailDialog(getCurrentRouteName(), new ArrayList<>(viewModel.getCurrentPoints()))
+                )
+                .setNegativeButton(R.string.route_share_cancel, null)
+                .show();
+    }
+
+    private boolean appendRecordedLocation(@Nullable BDLocation bdLocation) {
+        if (bdLocation == null || bdLocation.getLatitude() == 0 || bdLocation.getLongitude() == 0) {
+            return false;
+        }
+        LatLng latLng = new LatLng(bdLocation.getLatitude(), bdLocation.getLongitude());
+        viewModel.addPoint(buildRoutePoint(latLng, sanitizeAltitude(bdLocation)));
+        return true;
+    }
+
+    private void startRecordScheduler() {
+        stopRecordScheduler();
+        recordHandler.postDelayed(recordRunnable, recordIntervalSeconds * 1000L);
+    }
+
+    private void stopRecordScheduler() {
+        recordHandler.removeCallbacks(recordRunnable);
+    }
+
+    private void showRecordSettingsDialog() {
+        if (isRecording) {
+            GoUtils.DisplayToast(this, getString(R.string.route_record_setting_stop_first));
+            return;
+        }
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(recordIntervalSeconds));
+        input.setHint(String.valueOf(DEFAULT_RECORD_INTERVAL_SECONDS));
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_record_setting_title)
+                .setMessage(R.string.route_record_setting_message)
+                .setView(input)
+                .setPositiveButton(R.string.route_record_setting_confirm, (dialog, which) -> {
+                    String rawValue = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (TextUtils.isEmpty(rawValue)) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_record_setting_invalid));
+                        return;
+                    }
+                    try {
+                        int value = Integer.parseInt(rawValue);
+                        if (value < MIN_RECORD_INTERVAL_SECONDS) {
+                            throw new IllegalArgumentException("interval too small");
+                        }
+                        recordIntervalSeconds = value;
+                        getSharedPreferences(PREF_ROUTE_CREATE, MODE_PRIVATE)
+                                .edit()
+                                .putInt(PREF_ROUTE_RECORD_INTERVAL_SECONDS, recordIntervalSeconds)
+                                .apply();
+                        updateCreateModeUi();
+                        GoUtils.DisplayToast(this, getString(R.string.route_record_setting_saved, recordIntervalSeconds));
+                    } catch (Exception exception) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_record_setting_invalid));
+                    }
+                })
+                .setNegativeButton(R.string.route_share_cancel, null)
+                .show();
+    }
+
+    private void switchToolMode(int newMode) {
+        if (isRecordModeEnabled()) {
+            return;
+        }
+        toolMode = newMode;
+        if (toolMode != TOOL_MODE_EDIT) {
+            selectedPointIndex = -1;
+        }
+        drawRoute(viewModel.getCurrentPoints());
+        updateCreateModeUi();
+    }
+
+    private void clearSelectedPoint() {
+        selectedPointIndex = -1;
+        updateCreateModeUi();
+        drawRoute(viewModel.getCurrentPoints());
+    }
+
+    private void deleteSelectedPoint() {
+        if (selectedPointIndex < 0) {
+            return;
+        }
+        viewModel.removePointAt(selectedPointIndex);
+        selectedPointIndex = -1;
+        GoUtils.DisplayToast(this, getString(R.string.route_selected_point_deleted));
+    }
+
+    private double sanitizeAltitude(@NonNull BDLocation bdLocation) {
+        double altitude = bdLocation.getAltitude();
+        if (Double.isNaN(altitude) || Double.isInfinite(altitude)) {
+            return DEFAULT_ALTITUDE;
+        }
+        return altitude;
+    }
+
+    @NonNull
+    private RoutePoint buildRoutePoint(@NonNull LatLng latLng, double altitude) {
+        double[] wgsCoordinates = MapUtils.bd2wgs(latLng.longitude, latLng.latitude);
+        return new RoutePoint(
+                latLng.longitude,
+                latLng.latitude,
+                wgsCoordinates[0],
+                wgsCoordinates[1],
+                altitude
+        );
+    }
+
+    private void updateCreateModeUi() {
+        boolean recordModeEnabled = isRecordModeEnabled();
+        if (recordButton != null) {
+            recordButton.setEnabled(recordModeEnabled || isRecording);
+            recordButton.setText(isRecording ? R.string.route_record_stop_button : R.string.route_record_start_button);
+        }
+        if (clearButton != null) {
+            clearButton.setEnabled(!isRecording);
+        }
+        if (saveButton != null) {
+            saveButton.setEnabled(!isRecording);
+        }
+        if (shareButton != null) {
+            shareButton.setEnabled(!isRecording);
+        }
+
+        boolean showToolbox = !recordModeEnabled && !isRecording && !toolboxCollapsed;
+        if (toolboxPanel != null) {
+            toolboxPanel.setVisibility(showToolbox ? View.VISIBLE : View.GONE);
+        }
+        if (toggleToolButton != null) {
+            toggleToolButton.setImageResource(toolboxCollapsed ? R.drawable.ic_right : R.drawable.ic_left);
+        }
+        if (drawToolButton != null) {
+            drawToolButton.setEnabled(toolMode != TOOL_MODE_DRAW);
+        }
+        if (editToolButton != null) {
+            editToolButton.setEnabled(toolMode != TOOL_MODE_EDIT && !viewModel.getCurrentPoints().isEmpty());
+        }
+        boolean showSelectedActions = showToolbox && toolMode == TOOL_MODE_EDIT && selectedPointIndex >= 0;
+        if (keepToolButton != null) {
+            keepToolButton.setVisibility(showSelectedActions ? View.VISIBLE : View.GONE);
+        }
+        if (deleteToolButton != null) {
+            deleteToolButton.setVisibility(showSelectedActions ? View.VISIBLE : View.GONE);
+        }
+        if (selectedPointView != null) {
+            if (showSelectedActions) {
+                selectedPointView.setVisibility(View.VISIBLE);
+                selectedPointView.setText(getString(R.string.route_selected_point_format, selectedPointIndex + 1));
+            } else {
+                selectedPointView.setVisibility(View.GONE);
+            }
+        }
+
+        if (routeHintView == null) {
+            return;
+        }
+        if (isRecording) {
+            routeHintView.setText(getString(R.string.route_record_hint_active, viewModel.getCurrentPoints().size()));
+        } else if (recordModeEnabled) {
+            routeHintView.setText(getString(R.string.route_record_hint_idle, recordIntervalSeconds));
+        } else if (toolMode == TOOL_MODE_EDIT) {
+            routeHintView.setText(selectedPointIndex >= 0
+                    ? getString(R.string.route_selected_point_format, selectedPointIndex + 1)
+                    : getString(R.string.route_edit_mode_hint));
+        } else if (!TextUtils.isEmpty(editingRouteId)) {
+            routeHintView.setText(R.string.route_draw_mode_hint);
+        } else {
+            routeHintView.setText(R.string.route_draw_hint);
+        }
+    }
+
+    private boolean isRecordModeEnabled() {
+        return recordModeSwitch != null && recordModeSwitch.isChecked();
     }
 
     private void showSaveDialog() {
+        if (isRecording) {
+            return;
+        }
         if (!viewModel.canSave()) {
             GoUtils.DisplayToast(this, "至少绘制两个点后才能保存");
             return;
@@ -349,10 +798,10 @@ public class RouteCreateActivity extends BaseActivity {
 
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT);
-        input.setText(buildDefaultRouteName());
+        input.setText(getCurrentRouteName());
 
         new AlertDialog.Builder(this)
-                .setTitle("保存路线")
+                .setTitle(TextUtils.isEmpty(editingRouteId) ? "保存路线" : getString(R.string.route_edit_title))
                 .setView(input)
                 .setPositiveButton("保存", (dialog, which) -> {
                     String routeName = input.getText() == null ? "" : input.getText().toString().trim();
@@ -361,7 +810,19 @@ public class RouteCreateActivity extends BaseActivity {
                         return;
                     }
                     try {
-                        viewModel.saveRoute(routeName);
+                        RouteDefinition routeDefinition;
+                        if (TextUtils.isEmpty(editingRouteId)) {
+                            routeDefinition = viewModel.saveRoute(routeName);
+                        } else {
+                            routeDefinition = viewModel.updateRoute(
+                                    editingRouteId,
+                                    routeName,
+                                    new ArrayList<>(viewModel.getCurrentPoints()),
+                                    editingShareInfo
+                            );
+                            editingRouteId = routeDefinition.getId();
+                        }
+                        editingRouteName = routeDefinition.getName();
                         GoUtils.DisplayToast(this, "路线已保存");
                         finish();
                     } catch (Exception exception) {
@@ -373,6 +834,9 @@ public class RouteCreateActivity extends BaseActivity {
     }
 
     private void showShareDialog() {
+        if (isRecording) {
+            return;
+        }
         boolean hasCurrentPoints = viewModel.canSave();
         List<RouteDefinition> localRoutes = getLocalRoutes();
         boolean hasLocalRoutes = !localRoutes.isEmpty();
@@ -390,7 +854,7 @@ public class RouteCreateActivity extends BaseActivity {
                     .setTitle(R.string.route_share_dialog_title)
                     .setItems(options, (dialog, which) -> {
                         if (which == 0) {
-                            showShareDetailDialog(buildDefaultRouteName(), new ArrayList<>(viewModel.getCurrentPoints()));
+                            showShareDetailDialog(getCurrentRouteName(), new ArrayList<>(viewModel.getCurrentPoints()));
                         } else {
                             showLocalRouteSelector(localRoutes);
                         }
@@ -400,7 +864,7 @@ public class RouteCreateActivity extends BaseActivity {
         }
 
         if (hasCurrentPoints) {
-            showShareDetailDialog(buildDefaultRouteName(), new ArrayList<>(viewModel.getCurrentPoints()));
+            showShareDetailDialog(getCurrentRouteName(), new ArrayList<>(viewModel.getCurrentPoints()));
             return;
         }
 
@@ -458,7 +922,15 @@ public class RouteCreateActivity extends BaseActivity {
                         .shareApiClient()
                         .uploadRoute(routeName, privacyMode, points);
                 String localName = TextUtils.isEmpty(payload.getName()) ? routeName : payload.getName();
-                viewModel.saveRoute(localName, points, payload.toShareInfo(false));
+                RouteDefinition routeDefinition;
+                if (TextUtils.isEmpty(editingRouteId)) {
+                    routeDefinition = viewModel.saveRoute(localName, points, payload.toShareInfo(false));
+                } else {
+                    routeDefinition = viewModel.updateRoute(editingRouteId, localName, points, payload.toShareInfo(false));
+                    editingRouteId = routeDefinition.getId();
+                }
+                editingRouteName = routeDefinition.getName();
+                editingShareInfo = routeDefinition.getShareInfo();
                 runOnUiThread(() -> {
                     GoUtils.DisplayToast(
                             this,
@@ -481,6 +953,10 @@ public class RouteCreateActivity extends BaseActivity {
         }
     }
 
+    private String getCurrentRouteName() {
+        return TextUtils.isEmpty(editingRouteName) ? buildDefaultRouteName() : editingRouteName;
+    }
+
     private String buildDetailedToast(int prefixResId, Exception exception) {
         String detail = exception == null || exception.getMessage() == null ? "" : exception.getMessage().trim();
         if (detail.isEmpty()) {
@@ -491,5 +967,53 @@ public class RouteCreateActivity extends BaseActivity {
 
     private String buildDefaultRouteName() {
         return "route_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+    }
+
+    @NonNull
+    private BitmapDescriptor getRouteVertexDescriptor() {
+        if (routeVertexDescriptor == null) {
+            routeVertexDescriptor = createCircleMarkerDescriptor(14, "#2E7D32");
+        }
+        return routeVertexDescriptor;
+    }
+
+    @NonNull
+    private BitmapDescriptor getSelectedRouteVertexDescriptor() {
+        if (routeVertexSelectedDescriptor == null) {
+            routeVertexSelectedDescriptor = createCircleMarkerDescriptor(18, "#F57C00");
+        }
+        return routeVertexSelectedDescriptor;
+    }
+
+    @NonNull
+    private BitmapDescriptor createCircleMarkerDescriptor(int sizeDp, @NonNull String fillColor) {
+        int sizePx = Math.max(1, Math.round(getResources().getDisplayMetrics().density * sizeDp));
+        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        float center = sizePx / 2f;
+        float outerRadius = center;
+        float innerRadius = Math.max(1f, outerRadius - (getResources().getDisplayMetrics().density * 2f));
+
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setColor(Color.WHITE);
+        strokePaint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(center, center, outerRadius, strokePaint);
+
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setColor(Color.parseColor(fillColor));
+        fillPaint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(center, center, innerRadius, fillPaint);
+        return BitmapDescriptorFactory.fromBitmap(bitmap);
+    }
+
+    private void recycleMarkerDescriptors() {
+        if (routeVertexDescriptor != null) {
+            routeVertexDescriptor.recycle();
+            routeVertexDescriptor = null;
+        }
+        if (routeVertexSelectedDescriptor != null) {
+            routeVertexSelectedDescriptor.recycle();
+            routeVertexSelectedDescriptor = null;
+        }
     }
 }

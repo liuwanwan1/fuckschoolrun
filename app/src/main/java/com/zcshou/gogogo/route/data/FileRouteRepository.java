@@ -76,6 +76,40 @@ public final class FileRouteRepository implements RouteRepository {
     }
 
     @Override
+    public RouteDefinition updateRoute(String routeId, String routeName, List<RoutePoint> points, RouteShareInfo shareInfo) throws IOException {
+        ensureDirectory();
+        File sourceFile = new File(routeDirectory, routeId);
+        long now = System.currentTimeMillis();
+        long createdAt = now;
+        RouteShareInfo resolvedShareInfo = shareInfo == null ? RouteShareInfo.NONE : shareInfo;
+        if (sourceFile.exists()) {
+            RouteDefinition existingRoute = readRoute(sourceFile);
+            createdAt = existingRoute.getCreatedAt();
+            if (shareInfo == null) {
+                resolvedShareInfo = existingRoute.getShareInfo();
+            }
+        }
+
+        String safeName = sanitizeFileName(routeName);
+        File targetFile = resolveUpdateTargetFile(sourceFile, safeName, now);
+        RouteDefinition routeDefinition = new RouteDefinition(
+                targetFile.getName(),
+                routeName,
+                createdAt,
+                now,
+                points,
+                targetFile,
+                resolvedShareInfo
+        );
+        writeText(targetFile, encodeRoute(routeDefinition));
+
+        if (!targetFile.equals(sourceFile) && sourceFile.exists() && !sourceFile.delete()) {
+            throw new IOException("Unable to replace original route file");
+        }
+        return routeDefinition;
+    }
+
+    @Override
     public RouteDefinition importRoute(String displayName, InputStream inputStream) throws IOException {
         ensureDirectory();
         String content = readText(inputStream);
@@ -129,6 +163,14 @@ public final class FileRouteRepository implements RouteRepository {
         try (FileOutputStream outputStream = new FileOutputStream(routeFile, false)) {
             outputStream.write(text.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    private File resolveUpdateTargetFile(File sourceFile, String safeName, long now) {
+        File preferredFile = new File(routeDirectory, safeName + ".route.json");
+        if (!preferredFile.exists() || preferredFile.equals(sourceFile)) {
+            return preferredFile;
+        }
+        return new File(routeDirectory, safeName + "_" + now + ".route.json");
     }
 
     private void ensureDirectory() throws IOException {

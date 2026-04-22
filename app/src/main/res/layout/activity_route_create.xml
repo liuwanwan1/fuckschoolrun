@@ -54,16 +54,127 @@
         </LinearLayout>
     </LinearLayout>
 
-    <TextView
-        android:layout_width="wrap_content"
+    <RadioGroup
+        android:id="@+id/route_create_map_type_group"
+        android:layout_width="100dp"
         android:layout_height="wrap_content"
         android:layout_below="@id/route_search_container"
+        android:layout_alignParentEnd="true"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="12dp"
+        android:background="#E6FFFFFF"
+        android:elevation="4dp"
+        android:orientation="vertical"
+        android:padding="4dp">
+
+        <RadioButton
+            android:id="@+id/route_create_map_normal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:minHeight="40dp"
+            android:text="@string/map_pic_normal"
+            android:textColor="#00796B" />
+
+        <RadioButton
+            android:id="@+id/route_create_map_satellite"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="40dp"
+            android:text="@string/map_pic_sate"
+            android:textColor="#00796B" />
+    </RadioGroup>
+
+    <TextView
+        android:id="@+id/route_create_hint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/route_create_map_type_group"
         android:layout_centerHorizontal="true"
         android:layout_marginTop="10dp"
         android:background="#80000000"
         android:padding="5dp"
         android:text="@string/route_draw_hint"
         android:textColor="#ffffff" />
+
+    <LinearLayout
+        android:id="@+id/route_create_toolbox_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/route_search_container"
+        android:layout_alignParentStart="true"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/route_create_toolbox_panel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="#E6FFFFFF"
+            android:elevation="4dp"
+            android:orientation="vertical"
+            android:padding="6dp">
+
+            <Button
+                android:id="@+id/btn_create_tool_draw"
+                android:layout_width="72dp"
+                android:layout_height="wrap_content"
+                android:minHeight="36dp"
+                android:text="@string/route_tool_draw" />
+
+            <Button
+                android:id="@+id/btn_create_tool_edit"
+                android:layout_width="72dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:minHeight="36dp"
+                android:text="@string/route_tool_edit" />
+
+            <Button
+                android:id="@+id/btn_create_tool_keep"
+                android:layout_width="72dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:minHeight="36dp"
+                android:text="@string/route_tool_keep"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btn_create_tool_delete"
+                android:layout_width="72dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:minHeight="36dp"
+                android:text="@string/route_tool_delete"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btn_create_tool_toggle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/circle_shape_bg"
+            android:contentDescription="@string/route_tool_toggle"
+            android:padding="8dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_left" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/route_create_selected_point"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/route_create_toolbox_container"
+        android:layout_alignStart="@id/route_create_toolbox_container"
+        android:layout_marginTop="8dp"
+        android:background="#CC000000"
+        android:padding="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone" />
 
     <ImageButton
         android:id="@+id/btn_create_location"
@@ -90,6 +201,41 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_create_record_mode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="48dp"
+                android:text="@string/route_record_mode_switch" />
+
+            <ImageButton
+                android:id="@+id/btn_create_record_settings"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/circle_shape_bg"
+                android:contentDescription="@string/route_record_setting_title"
+                android:padding="8dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_menu_settings" />
+
+            <Button
+                android:id="@+id/btn_create_record"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:enabled="false"
+                android:text="@string/route_record_start_button" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:orientation="horizontal">
 
             <Button

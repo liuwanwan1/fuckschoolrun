@@ -17,6 +17,8 @@ public interface RouteRepository {
 
     RouteDefinition saveRoute(String routeName, List<RoutePoint> points, RouteShareInfo shareInfo) throws IOException;
 
+    RouteDefinition updateRoute(String routeId, String routeName, List<RoutePoint> points, RouteShareInfo shareInfo) throws IOException;
+
     RouteDefinition importRoute(String displayName, InputStream inputStream) throws IOException;
 
     void deleteRoute(String routeId) throws IOException;

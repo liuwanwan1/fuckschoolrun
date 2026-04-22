@@ -6,16 +6,20 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
-import android.widget.TextView;
 
+import androidx.annotation.IdRes;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.preference.PreferenceManager;
 
-import com.google.android.material.appbar.MaterialToolbar;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.acooldog.toolbox.utils.GoUtils;
+import com.acooldog.toolbox.home.HomeMineFragment;
+import com.acooldog.toolbox.home.HomeStartFragment;
 import com.acooldog.toolbox.update.GiteeReleaseChecker;
 import com.acooldog.toolbox.update.GiteeReleaseInfo;
+import com.acooldog.toolbox.utils.GoUtils;
+import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,10 +27,12 @@ import java.util.concurrent.Executors;
 import io.noties.markwon.Markwon;
 import okhttp3.OkHttpClient;
 
-public class HomeActivity extends BaseActivity {
+public class HomeActivity extends BaseActivity implements HomeMineFragment.Actions {
     private static final String PREF_IGNORED_RELEASE = "pref_ignored_gitee_release";
     private static final String PREF_LAST_AUTO_CHECK_VERSION = "pref_last_auto_check_version";
+    private static final String KEY_SELECTED_TAB = "selected_tab";
 
+    private MaterialToolbar toolbar;
     private ExecutorService ioExecutor;
     private SharedPreferences sharedPreferences;
     private OkHttpClient okHttpClient;
@@ -36,15 +42,32 @@ public class HomeActivity extends BaseActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
 
-        MaterialToolbar toolbar = findViewById(R.id.toolbar_main);
+        toolbar = findViewById(R.id.toolbar_main);
         setSupportActionBar(toolbar);
 
         ioExecutor = Executors.newSingleThreadExecutor();
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         okHttpClient = new OkHttpClient();
 
-        bindNavigation();
+        BottomNavigationView bottomNavigationView = findViewById(R.id.home_bottom_nav);
+        bottomNavigationView.setOnItemSelectedListener(item -> {
+            switchTab(item.getItemId());
+            return true;
+        });
+
+        int selectedTab = savedInstanceState == null
+                ? R.id.nav_home_start
+                : savedInstanceState.getInt(KEY_SELECTED_TAB, R.id.nav_home_start);
+        bottomNavigationView.setSelectedItemId(selectedTab);
+
         checkGiteeReleaseUpdate(false);
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        BottomNavigationView bottomNavigationView = findViewById(R.id.home_bottom_nav);
+        outState.putInt(KEY_SELECTED_TAB, bottomNavigationView.getSelectedItemId());
     }
 
     @Override
@@ -55,18 +78,40 @@ public class HomeActivity extends BaseActivity {
         super.onDestroy();
     }
 
-    private void bindNavigation() {
-        findViewById(R.id.card_operation_tips).setOnClickListener(v -> open(OperationTipsActivity.class));
-        findViewById(R.id.card_nfc_tools).setOnClickListener(v -> open(NfcToolsActivity.class));
-        findViewById(R.id.card_update_check).setOnClickListener(v -> checkGiteeReleaseUpdate(true));
-        findViewById(R.id.card_route_run).setOnClickListener(v -> open(RouteRunActivity.class));
-        findViewById(R.id.card_route_create).setOnClickListener(v -> open(RouteCreateActivity.class));
-        findViewById(R.id.card_settings).setOnClickListener(v -> open(SettingsActivity.class));
-        findViewById(R.id.card_dev).setOnClickListener(this::openDeveloperSettings);
+    private void switchTab(@IdRes int itemId) {
+        if (itemId == R.id.nav_home_mine) {
+            toolbar.setTitle(R.string.home_tab_mine);
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.home_fragment_container, HomeMineFragment.newInstance())
+                    .commit();
+            return;
+        }
+
+        toolbar.setTitle(R.string.home_tab_start);
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.home_fragment_container, HomeStartFragment.newInstance())
+                .commit();
     }
 
     private void open(Class<?> activityClass) {
         startActivity(new Intent(this, activityClass));
+    }
+
+    @Override
+    public void onCheckUpdateClicked() {
+        checkGiteeReleaseUpdate(true);
+    }
+
+    @Override
+    public void onSettingsClicked() {
+        open(SettingsActivity.class);
+    }
+
+    @Override
+    public void onDeveloperOptionsClicked() {
+        openDeveloperSettings(null);
     }
 
     private void openDeveloperSettings(View ignored) {
@@ -137,8 +182,8 @@ public class HomeActivity extends BaseActivity {
 
     private void showReleaseUpdateDialog(GiteeReleaseInfo releaseInfo) {
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_release_update, null);
-        TextView versionView = dialogView.findViewById(R.id.update_release_version);
-        TextView changelogView = dialogView.findViewById(R.id.update_release_changelog);
+        android.widget.TextView versionView = dialogView.findViewById(R.id.update_release_version);
+        android.widget.TextView changelogView = dialogView.findViewById(R.id.update_release_changelog);
 
         versionView.setText(getString(R.string.update_dialog_version, releaseInfo.getTagName()));
         Markwon.create(this).setMarkdown(

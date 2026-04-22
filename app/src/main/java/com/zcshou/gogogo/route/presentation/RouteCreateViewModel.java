@@ -35,6 +35,19 @@ public final class RouteCreateViewModel extends AndroidViewModel {
         routePoints.setValue(updatedPoints);
     }
 
+    public void setPoints(List<RoutePoint> points) {
+        routePoints.setValue(points == null ? new ArrayList<>() : new ArrayList<>(points));
+    }
+
+    public void removePointAt(int index) {
+        List<RoutePoint> updatedPoints = new ArrayList<>(getCurrentPoints());
+        if (index < 0 || index >= updatedPoints.size()) {
+            return;
+        }
+        updatedPoints.remove(index);
+        routePoints.setValue(updatedPoints);
+    }
+
     public void clear() {
         routePoints.setValue(new ArrayList<>());
     }
@@ -45,6 +58,10 @@ public final class RouteCreateViewModel extends AndroidViewModel {
 
     public RouteDefinition saveRoute(String routeName, List<RoutePoint> points, RouteShareInfo shareInfo) throws IOException {
         return routeModule.saveRouteUseCase().execute(routeName, points, shareInfo);
+    }
+
+    public RouteDefinition updateRoute(String routeId, String routeName, List<RoutePoint> points, RouteShareInfo shareInfo) throws IOException {
+        return routeModule.updateRouteUseCase().execute(routeId, routeName, points, shareInfo);
     }
 
     public boolean canSave() {

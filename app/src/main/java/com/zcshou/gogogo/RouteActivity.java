@@ -3,6 +3,7 @@ package com.acooldog.toolbox;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.ListView;
 import android.widget.TextView;
 
@@ -13,17 +14,37 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.ViewModelProvider;
 
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.acooldog.toolbox.route.domain.model.RouteDefinition;
-import com.acooldog.toolbox.route.presentation.RouteListAdapter;
+import com.acooldog.toolbox.route.presentation.LocalRouteActionAdapter;
 import com.acooldog.toolbox.route.presentation.RouteListViewModel;
+import com.acooldog.toolbox.route.presentation.RouteModule;
+import com.acooldog.toolbox.route.presentation.SharedRouteActionAdapter;
+import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
+import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
+import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.utils.GoUtils;
 import com.acooldog.toolbox.utils.ShareUtils;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.android.material.tabs.TabLayout;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class RouteActivity extends BaseActivity {
+    private static final int TAB_LOCAL = 0;
+    private static final int TAB_SHARED = 1;
+
     private RouteListViewModel viewModel;
-    private RouteListAdapter routeListAdapter;
+    private LocalRouteActionAdapter localRouteAdapter;
+    private SharedRouteActionAdapter sharedRouteAdapter;
     private TextView emptyView;
+    private ListView routeListView;
+    private FloatingActionButton importButton;
+    private ExecutorService ioExecutor;
+    private int currentTab = TAB_LOCAL;
+    private List<SharedRouteSummary> sharedRoutes = new ArrayList<>();
 
     private final ActivityResultLauncher<String[]> importLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::handleImportedRoute);
@@ -39,22 +60,60 @@ public class RouteActivity extends BaseActivity {
         }
 
         viewModel = new ViewModelProvider(this).get(RouteListViewModel.class);
-        routeListAdapter = new RouteListAdapter(this);
+        ioExecutor = Executors.newSingleThreadExecutor();
+        localRouteAdapter = new LocalRouteActionAdapter(this, new LocalActions());
+        sharedRouteAdapter = new SharedRouteActionAdapter(this, new SharedActions());
 
         emptyView = findViewById(R.id.route_no_data);
-        ListView routeListView = findViewById(R.id.route_list_view);
-        routeListView.setAdapter(routeListAdapter);
-        routeListView.setOnItemClickListener((parent, view, position, id) -> openRouteForSimulation(routeListAdapter.getItem(position)));
-        routeListView.setOnItemLongClickListener((parent, view, position, id) -> {
-            showRouteActions(routeListAdapter.getItem(position));
-            return true;
-        });
-
-        FloatingActionButton importButton = findViewById(R.id.fab_import);
+        routeListView = findViewById(R.id.route_list_view);
+        importButton = findViewById(R.id.fab_import);
         importButton.setOnClickListener(v -> importLauncher.launch(new String[]{"application/json", "*/*"}));
 
+        TabLayout tabLayout = findViewById(R.id.route_tab_layout);
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.route_tab_local));
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.route_tab_shared));
+        tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                currentTab = tab == null ? TAB_LOCAL : tab.getPosition();
+                renderCurrentTab();
+                if (currentTab == TAB_SHARED) {
+                    loadSharedRoutes();
+                }
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+                // No-op.
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+                if (tab != null && tab.getPosition() == TAB_SHARED) {
+                    loadSharedRoutes();
+                } else {
+                    refreshRoutes();
+                }
+            }
+        });
+
         observeRoutes();
+        renderCurrentTab();
         refreshRoutes();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshRoutes();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (ioExecutor != null) {
+            ioExecutor.shutdownNow();
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -65,9 +124,29 @@ public class RouteActivity extends BaseActivity {
 
     private void observeRoutes() {
         viewModel.getRoutes().observe(this, routes -> {
-            routeListAdapter.submit(routes);
-            emptyView.setVisibility(routes == null || routes.isEmpty() ? TextView.VISIBLE : TextView.GONE);
+            localRouteAdapter.submit(routes);
+            if (currentTab == TAB_LOCAL) {
+                updateEmptyState(routes == null || routes.isEmpty(), R.string.route_empty_local);
+            }
         });
+    }
+
+    private void renderCurrentTab() {
+        boolean localTab = currentTab == TAB_LOCAL;
+        routeListView.setAdapter(localTab ? localRouteAdapter : sharedRouteAdapter);
+        importButton.setVisibility(localTab ? View.VISIBLE : View.GONE);
+        if (localTab) {
+            List<RouteDefinition> routes = viewModel.getRoutes().getValue();
+            updateEmptyState(routes == null || routes.isEmpty(), R.string.route_empty_local);
+        } else {
+            updateEmptyState(sharedRoutes.isEmpty(), R.string.route_empty_shared);
+        }
+    }
+
+    private void updateEmptyState(boolean isEmpty, int messageResId) {
+        emptyView.setText(messageResId);
+        emptyView.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
+        routeListView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
     }
 
     private void refreshRoutes() {
@@ -96,33 +175,142 @@ public class RouteActivity extends BaseActivity {
         startActivity(intent);
     }
 
-    private void showRouteActions(RouteDefinition routeDefinition) {
-        String[] actions = {"分享路线", "删除路线"};
-        new AlertDialog.Builder(this)
-                .setTitle(routeDefinition.getName())
-                .setItems(actions, (dialog, which) -> {
-                    if (which == 0) {
-                        ShareUtils.shareFile(this, routeDefinition.getFile(), routeDefinition.getName());
-                    } else {
-                        confirmDelete(routeDefinition);
+    private void openSharedRouteForSimulation(SharedRouteSummary summary) {
+        Intent intent = new Intent(this, RouteRunActivity.class);
+        intent.putExtra(RouteRunActivity.EXTRA_SHARED_ROUTE_ID, summary.getId());
+        intent.putExtra(RouteRunActivity.EXTRA_SHARED_ROUTE_NAME, summary.getName());
+        startActivity(intent);
+    }
+
+    private void openRouteForEditing(RouteDefinition routeDefinition) {
+        Intent intent = new Intent(this, RouteCreateActivity.class);
+        intent.putExtra(RouteCreateActivity.EXTRA_EDIT_ROUTE_ID, routeDefinition.getId());
+        startActivity(intent);
+    }
+
+    private void loadSharedRoutes() {
+        if (!GoUtils.isNetworkAvailable(this)) {
+            GoUtils.DisplayToast(this, getString(R.string.app_error_network));
+            updateEmptyState(sharedRoutes.isEmpty(), R.string.route_empty_shared);
+            return;
+        }
+        GoUtils.DisplayToast(this, getString(R.string.route_shared_loading));
+        ioExecutor.execute(() -> {
+            try {
+                List<SharedRouteSummary> routes = ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .getSharedRoutes();
+                sharedRoutes = routes == null ? new ArrayList<>() : routes;
+                runOnUiThread(() -> {
+                    sharedRouteAdapter.submit(sharedRoutes);
+                    if (currentTab == TAB_SHARED) {
+                        updateEmptyState(sharedRoutes.isEmpty(), R.string.route_empty_shared);
                     }
-                })
-                .show();
+                });
+            } catch (Exception exception) {
+                runOnUiThread(() -> GoUtils.DisplayToast(this, buildDetailedToast(R.string.route_shared_load_failed, exception)));
+            }
+        });
+    }
+
+    private void downloadSharedRoute(SharedRouteSummary summary, boolean startSimulationAfterDownload) {
+        if (summary == null) {
+            return;
+        }
+        if (summary.isPrivacyMode()) {
+            if (startSimulationAfterDownload) {
+                GoUtils.DisplayToast(this, getString(R.string.route_privacy_simulation_loaded));
+                openSharedRouteForSimulation(summary);
+            } else {
+                GoUtils.DisplayToast(this, getString(R.string.route_privacy_download_blocked));
+            }
+            return;
+        }
+        if (!GoUtils.isNetworkAvailable(this)) {
+            GoUtils.DisplayToast(this, getString(R.string.app_error_network));
+            return;
+        }
+        GoUtils.DisplayToast(this, getString(R.string.route_shared_downloading));
+        ioExecutor.execute(() -> {
+            try {
+                SharedRoutePayload payload = ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .getSharedRoute(summary.getId());
+                String localName = payload.getName().isEmpty() ? summary.getName() : payload.getName();
+                RouteDefinition routeDefinition = RouteModule.from(getApplicationContext())
+                        .saveRouteUseCase()
+                        .execute(localName, payload.getPoints(), payload.toShareInfo(true));
+                runOnUiThread(() -> {
+                    GoUtils.DisplayToast(
+                            this,
+                            getString(payload.isPrivacyMode() ? R.string.route_shared_downloaded_private : R.string.route_shared_downloaded)
+                    );
+                    refreshRoutes();
+                    if (startSimulationAfterDownload) {
+                        openRouteForSimulation(routeDefinition);
+                    }
+                });
+            } catch (Exception exception) {
+                runOnUiThread(() -> GoUtils.DisplayToast(this, buildDetailedToast(R.string.route_shared_download_failed, exception)));
+            }
+        });
     }
 
     private void confirmDelete(RouteDefinition routeDefinition) {
         new AlertDialog.Builder(this)
-                .setTitle("删除路线")
-                .setMessage("确定要删除这条路线吗？")
-                .setPositiveButton("删除", (dialog, which) -> {
+                .setTitle(R.string.route_delete_title)
+                .setMessage(R.string.route_delete_message)
+                .setPositiveButton(R.string.route_item_delete, (dialog, which) -> {
                     try {
                         viewModel.deleteRoute(routeDefinition);
-                        GoUtils.DisplayToast(this, "路线已删除");
+                        GoUtils.DisplayToast(this, getString(R.string.route_delete_success));
                     } catch (Exception exception) {
-                        GoUtils.DisplayToast(this, "删除路线失败");
+                        GoUtils.DisplayToast(this, getString(R.string.route_delete_failed));
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(R.string.route_share_cancel, null)
                 .show();
+    }
+
+    private String buildDetailedToast(int prefixResId, Exception exception) {
+        String detail = exception == null || exception.getMessage() == null ? "" : exception.getMessage().trim();
+        if (detail.isEmpty()) {
+            return getString(prefixResId);
+        }
+        return getString(prefixResId) + " " + detail;
+    }
+
+    private final class LocalActions implements LocalRouteActionAdapter.Actions {
+        @Override
+        public void onRun(RouteDefinition routeDefinition) {
+            openRouteForSimulation(routeDefinition);
+        }
+
+        @Override
+        public void onEdit(RouteDefinition routeDefinition) {
+            openRouteForEditing(routeDefinition);
+        }
+
+        @Override
+        public void onShare(RouteDefinition routeDefinition) {
+            ShareUtils.shareFile(RouteActivity.this, routeDefinition.getFile(), routeDefinition.getName());
+        }
+
+        @Override
+        public void onDelete(RouteDefinition routeDefinition) {
+            confirmDelete(routeDefinition);
+        }
+    }
+
+    private final class SharedActions implements SharedRouteActionAdapter.Actions {
+        @Override
+        public void onDownload(SharedRouteSummary routeSummary) {
+            downloadSharedRoute(routeSummary, false);
+        }
+
+        @Override
+        public void onDownloadAndRun(SharedRouteSummary routeSummary) {
+            downloadSharedRoute(routeSummary, true);
+        }
     }
 }

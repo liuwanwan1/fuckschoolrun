@@ -37,6 +37,7 @@ import com.acooldog.toolbox.config.SimulationPrefsStore;
 import com.acooldog.toolbox.route.domain.model.RouteDefinition;
 import com.acooldog.toolbox.route.domain.model.RoutePoint;
 import com.acooldog.toolbox.route.domain.model.RouteSimulationConfig;
+import com.acooldog.toolbox.route.domain.model.RouteShareInfo;
 import com.acooldog.toolbox.route.domain.service.LocationSimulationGateway;
 import com.acooldog.toolbox.route.presentation.RouteRunViewModel;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
@@ -54,6 +55,8 @@ import java.util.concurrent.Executors;
 
 public class RouteRunActivity extends BaseActivity {
     public static final String EXTRA_ROUTE_ID = "route_id";
+    public static final String EXTRA_SHARED_ROUTE_ID = "shared_route_id";
+    public static final String EXTRA_SHARED_ROUTE_NAME = "shared_route_name";
 
     private RouteRunViewModel viewModel;
     private MapView mapView;
@@ -132,12 +135,15 @@ public class RouteRunActivity extends BaseActivity {
         promptMockLocationIfNeeded();
 
         String preselectedRouteId = getIntent().getStringExtra(EXTRA_ROUTE_ID);
+        String preselectedSharedRouteId = getIntent().getStringExtra(EXTRA_SHARED_ROUTE_ID);
         if (!TextUtils.isEmpty(preselectedRouteId)) {
             try {
                 viewModel.selectRouteById(preselectedRouteId);
             } catch (Exception ignored) {
                 // Ignore and keep picker available.
             }
+        } else if (!TextUtils.isEmpty(preselectedSharedRouteId)) {
+            loadSharedRouteForSimulation(preselectedSharedRouteId, getIntent().getStringExtra(EXTRA_SHARED_ROUTE_NAME));
         } else {
             restoreLastRouteSelection();
         }
@@ -202,7 +208,7 @@ public class RouteRunActivity extends BaseActivity {
             if (simulationMarker == null) {
                 simulationMarker = (Marker) baiduMap.addOverlay(new MarkerOptions()
                         .position(latLng)
-                        .icon(BitmapDescriptorFactory.fromResource(R.drawable.icon_gcoding)));
+                        .icon(BitmapDescriptorFactory.fromResource(R.drawable.marker_route_progress)));
             } else {
                 simulationMarker.setPosition(latLng);
             }
@@ -298,7 +304,14 @@ public class RouteRunActivity extends BaseActivity {
 
         new AlertDialog.Builder(this)
                 .setTitle(R.string.route_shared_pick_title)
-                .setItems(routeNames, (dialog, which) -> downloadSharedRoute(routes.get(which)))
+                .setItems(routeNames, (dialog, which) -> {
+                    SharedRouteSummary summary = routes.get(which);
+                    if (summary.isPrivacyMode()) {
+                        loadSharedRouteForSimulation(summary.getId(), summary.getName());
+                    } else {
+                        downloadSharedRoute(summary);
+                    }
+                })
                 .show();
     }
 
@@ -315,6 +328,52 @@ public class RouteRunActivity extends BaseActivity {
                         this,
                         getString(payload.isPrivacyMode() ? R.string.route_shared_downloaded_private : R.string.route_shared_downloaded)
                 ));
+            } catch (Exception exception) {
+                runOnUiThread(() -> GoUtils.DisplayToast(this, buildDetailedToast(R.string.route_shared_download_failed, exception)));
+            }
+        });
+    }
+
+    private void loadSharedRouteForSimulation(String shareId, @Nullable String fallbackName) {
+        if (TextUtils.isEmpty(shareId)) {
+            return;
+        }
+        if (!GoUtils.isNetworkAvailable(this)) {
+            GoUtils.DisplayToast(this, getString(R.string.app_error_network));
+            return;
+        }
+        GoUtils.DisplayToast(this, getString(R.string.route_shared_downloading));
+        ioExecutor.execute(() -> {
+            try {
+                SharedRoutePayload payload = ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .getSharedRoute(shareId);
+                String routeName = TextUtils.isEmpty(payload.getName()) ? fallbackName : payload.getName();
+                if (TextUtils.isEmpty(routeName)) {
+                    routeName = "shared_" + shareId;
+                }
+                RouteDefinition routeDefinition = new RouteDefinition(
+                        "shared_preview_" + shareId,
+                        routeName,
+                        payload.getCreatedAt(),
+                        System.currentTimeMillis(),
+                        payload.getPoints(),
+                        new java.io.File(getCacheDir(), "shared_preview_" + shareId + ".route.json"),
+                        new RouteShareInfo(
+                                shareId,
+                                true,
+                                payload.isPrivacyMode(),
+                                true,
+                                payload.getCreatedAt()
+                        )
+                );
+                runOnUiThread(() -> {
+                    viewModel.selectRoute(routeDefinition);
+                    GoUtils.DisplayToast(
+                            this,
+                            getString(payload.isPrivacyMode() ? R.string.route_privacy_simulation_loaded : R.string.route_shared_downloaded)
+                    );
+                });
             } catch (Exception exception) {
                 runOnUiThread(() -> GoUtils.DisplayToast(this, buildDetailedToast(R.string.route_shared_download_failed, exception)));
             }
