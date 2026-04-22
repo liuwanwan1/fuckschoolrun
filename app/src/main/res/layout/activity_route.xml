@@ -22,6 +22,14 @@
             app:tabSelectedTextColor="@color/colorPrimary"
             app:tabTextColor="#7C7164" />
 
+        <androidx.appcompat.widget.SearchView
+            android:id="@+id/route_search_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/surfaceCard"
+            android:iconifiedByDefault="false"
+            android:queryHint="@string/searchable_picker_hint" />
+
         <TextView
             android:id="@+id/route_no_data"
             android:layout_width="match_parent"

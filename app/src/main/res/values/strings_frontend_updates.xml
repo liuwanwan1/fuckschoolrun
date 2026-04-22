@@ -33,11 +33,14 @@
     <string name="route_tool_keep">保留点</string>
     <string name="route_tool_delete">删此点</string>
     <string name="route_tool_toggle">收起或展开工具栏</string>
+    <string name="route_close_button">闭合路线</string>
     <string name="route_edit_title">编辑路线</string>
     <string name="route_edit_loaded">已载入本地路线，可继续绘制或编辑顶点。</string>
     <string name="route_edit_missing">未找到要编辑的本地路线。</string>
     <string name="route_edit_mode_hint">编辑模式下点击顶点，可保留或删除该点。</string>
     <string name="route_draw_mode_hint">绘制模式下点击地图会沿用现有路线继续连线。</string>
+    <string name="route_close_hint">点击起点后，可闭合路线把终点连回起点。</string>
+    <string name="route_closed_success">路线已闭合，终点已连接回起点。</string>
     <string name="route_selected_point_format">已选中第 %1$d 个顶点</string>
     <string name="route_selected_point_deleted">已删除选中顶点，路线已自动重连。</string>
     <string name="route_share_current_option">分享当前绘制路线</string>
@@ -58,6 +61,8 @@
     <string name="route_empty_local">暂无本地路线\n点击右下角按钮可以导入，或去绘制页面新建路线。</string>
     <string name="route_empty_shared">暂无共享路线\n切到共享分区后会自动拉取可下载路线。</string>
     <string name="route_import_button">导入路线</string>
+    <string name="searchable_picker_hint">输入名称或首字母筛查</string>
+    <string name="searchable_picker_empty">没有匹配结果</string>
     <string name="route_item_run">开始模拟</string>
     <string name="route_item_edit">编辑路线</string>
     <string name="route_item_export">导出路线</string>

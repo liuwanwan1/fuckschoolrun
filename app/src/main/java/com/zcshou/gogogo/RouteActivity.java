@@ -9,9 +9,11 @@ import android.widget.TextView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.SearchView;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.acooldog.toolbox.route.domain.model.RouteDefinition;
@@ -23,11 +25,13 @@ import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
 import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
 import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.utils.GoUtils;
+import com.acooldog.toolbox.utils.SearchSortUtils;
 import com.acooldog.toolbox.utils.ShareUtils;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.tabs.TabLayout;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,6 +49,7 @@ public class RouteActivity extends BaseActivity {
     private ExecutorService ioExecutor;
     private int currentTab = TAB_LOCAL;
     private List<SharedRouteSummary> sharedRoutes = new ArrayList<>();
+    private String currentQuery = "";
 
     private final ActivityResultLauncher<String[]> importLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::handleImportedRoute);
@@ -68,6 +73,22 @@ public class RouteActivity extends BaseActivity {
         routeListView = findViewById(R.id.route_list_view);
         importButton = findViewById(R.id.fab_import);
         importButton.setOnClickListener(v -> importLauncher.launch(new String[]{"application/json", "*/*"}));
+        SearchView searchView = findViewById(R.id.route_search_view);
+        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                currentQuery = query == null ? "" : query.trim();
+                renderCurrentTab();
+                return true;
+            }
+
+            @Override
+            public boolean onQueryTextChange(String newText) {
+                currentQuery = newText == null ? "" : newText.trim();
+                renderCurrentTab();
+                return true;
+            }
+        });
 
         TabLayout tabLayout = findViewById(R.id.route_tab_layout);
         tabLayout.addTab(tabLayout.newTab().setText(R.string.route_tab_local));
@@ -124,10 +145,7 @@ public class RouteActivity extends BaseActivity {
 
     private void observeRoutes() {
         viewModel.getRoutes().observe(this, routes -> {
-            localRouteAdapter.submit(routes);
-            if (currentTab == TAB_LOCAL) {
-                updateEmptyState(routes == null || routes.isEmpty(), R.string.route_empty_local);
-            }
+            renderCurrentTab();
         });
     }
 
@@ -136,10 +154,13 @@ public class RouteActivity extends BaseActivity {
         routeListView.setAdapter(localTab ? localRouteAdapter : sharedRouteAdapter);
         importButton.setVisibility(localTab ? View.VISIBLE : View.GONE);
         if (localTab) {
-            List<RouteDefinition> routes = viewModel.getRoutes().getValue();
-            updateEmptyState(routes == null || routes.isEmpty(), R.string.route_empty_local);
+            List<RouteDefinition> routes = filterLocalRoutes(viewModel.getRoutes().getValue(), currentQuery);
+            localRouteAdapter.submit(routes);
+            updateEmptyState(routes.isEmpty(), R.string.route_empty_local);
         } else {
-            updateEmptyState(sharedRoutes.isEmpty(), R.string.route_empty_shared);
+            List<SharedRouteSummary> routes = filterSharedRoutes(sharedRoutes, currentQuery);
+            sharedRouteAdapter.submit(routes);
+            updateEmptyState(routes.isEmpty(), R.string.route_empty_shared);
         }
     }
 
@@ -201,11 +222,9 @@ public class RouteActivity extends BaseActivity {
                         .shareApiClient()
                         .getSharedRoutes();
                 sharedRoutes = routes == null ? new ArrayList<>() : routes;
+                sharedRoutes.sort(Comparator.comparing(route -> SearchSortUtils.buildSortKey(route.getName())));
                 runOnUiThread(() -> {
-                    sharedRouteAdapter.submit(sharedRoutes);
-                    if (currentTab == TAB_SHARED) {
-                        updateEmptyState(sharedRoutes.isEmpty(), R.string.route_empty_shared);
-                    }
+                    renderCurrentTab();
                 });
             } catch (Exception exception) {
                 runOnUiThread(() -> GoUtils.DisplayToast(this, buildDetailedToast(R.string.route_shared_load_failed, exception)));
@@ -278,6 +297,32 @@ public class RouteActivity extends BaseActivity {
             return getString(prefixResId);
         }
         return getString(prefixResId) + " " + detail;
+    }
+
+    private List<RouteDefinition> filterLocalRoutes(@Nullable List<RouteDefinition> routes, @NonNull String query) {
+        List<RouteDefinition> filtered = new ArrayList<>();
+        if (routes == null) {
+            return filtered;
+        }
+        for (RouteDefinition routeDefinition : routes) {
+            if (SearchSortUtils.matches(query, routeDefinition.getName())) {
+                filtered.add(routeDefinition);
+            }
+        }
+        return filtered;
+    }
+
+    private List<SharedRouteSummary> filterSharedRoutes(@Nullable List<SharedRouteSummary> routes, @NonNull String query) {
+        List<SharedRouteSummary> filtered = new ArrayList<>();
+        if (routes == null) {
+            return filtered;
+        }
+        for (SharedRouteSummary route : routes) {
+            if (SearchSortUtils.matches(query, route.getName())) {
+                filtered.add(route);
+            }
+        }
+        return filtered;
     }
 
     private final class LocalActions implements LocalRouteActionAdapter.Actions {

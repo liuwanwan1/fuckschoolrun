@@ -10,9 +10,13 @@ import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ArrayAdapter;
+import android.widget.ListView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -31,11 +35,14 @@ import com.acooldog.toolbox.nfc.domain.SendNfcPayloadUseCase;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.utils.GoUtils;
+import com.acooldog.toolbox.utils.SearchSortUtils;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -437,17 +444,34 @@ public class NfcToolsActivity extends BaseActivity {
             setStatus(mockStatusView, getString(R.string.nfc_download_empty), true);
             return;
         }
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_searchable_picker, null);
+        EditText searchInput = dialogView.findViewById(R.id.searchable_picker_input);
+        ListView listView = dialogView.findViewById(R.id.searchable_picker_list);
+        List<SearchableNfcItem> allItems = buildNfcItems(entries);
+        List<SearchableNfcItem> filteredItems = new ArrayList<>(allItems);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+        fillNfcAdapter(adapter, filteredItems);
+        listView.setAdapter(adapter);
 
-        CharSequence[] items = new CharSequence[entries.size()];
-        for (int index = 0; index < entries.size(); index++) {
-            SharedNfcEntry entry = entries.get(index);
-            items[index] = entry.getName() + " · " + entry.getPackageName();
-        }
-
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.nfc_download_pick_title)
-                .setItems(items, (dialog, which) -> applySharedNfc(entries.get(which)))
-                .show();
+                .setView(dialogView)
+                .setNegativeButton(R.string.nfc_share_cancel, null)
+                .create();
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            if (filteredItems.isEmpty()) {
+                return;
+            }
+            dialog.dismiss();
+            applySharedNfc(filteredItems.get(position).entry);
+        });
+        searchInput.addTextChangedListener(new SimpleTextWatcher() {
+            @Override
+            public void afterTextChanged(Editable editable) {
+                filterNfcItems(editable == null ? "" : editable.toString(), allItems, filteredItems, adapter);
+            }
+        });
+        dialog.show();
     }
 
     private void applySharedNfc(SharedNfcEntry entry) {
@@ -535,5 +559,67 @@ public class NfcToolsActivity extends BaseActivity {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private static final class SearchableNfcItem {
+        private final SharedNfcEntry entry;
+        private final String displayText;
+        private final String sortKey;
+
+        private SearchableNfcItem(SharedNfcEntry entry, String displayText, String sortKey) {
+            this.entry = entry;
+            this.displayText = displayText;
+            this.sortKey = sortKey;
+        }
+    }
+
+    private abstract static class SimpleTextWatcher implements TextWatcher {
+        @Override
+        public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            // No-op.
+        }
+
+        @Override
+        public void onTextChanged(CharSequence s, int start, int before, int count) {
+            // No-op.
+        }
+    }
+
+    private List<SearchableNfcItem> buildNfcItems(List<SharedNfcEntry> entries) {
+        List<SearchableNfcItem> items = new ArrayList<>();
+        for (SharedNfcEntry entry : entries) {
+            String displayText = entry.getName() + " · " + entry.getPackageName();
+            items.add(new SearchableNfcItem(entry, displayText, SearchSortUtils.buildSortKey(entry.getName())));
+        }
+        items.sort(Comparator.comparing(item -> item.sortKey));
+        return items;
+    }
+
+    private void fillNfcAdapter(ArrayAdapter<String> adapter, List<SearchableNfcItem> items) {
+        adapter.clear();
+        if (items.isEmpty()) {
+            adapter.add(getString(R.string.searchable_picker_empty));
+        } else {
+            for (SearchableNfcItem item : items) {
+                adapter.add(item.displayText);
+            }
+        }
+        adapter.notifyDataSetChanged();
+    }
+
+    private void filterNfcItems(
+            String query,
+            List<SearchableNfcItem> sourceItems,
+            List<SearchableNfcItem> filteredItems,
+            ArrayAdapter<String> adapter
+    ) {
+        filteredItems.clear();
+        for (SearchableNfcItem item : sourceItems) {
+            if (SearchSortUtils.matches(query, item.entry.getName())
+                    || SearchSortUtils.matches(query, item.entry.getPackageName())) {
+                filteredItems.add(item);
+            }
+        }
+        fillNfcAdapter(adapter, filteredItems);
     }
 }

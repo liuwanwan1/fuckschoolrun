@@ -80,8 +80,12 @@ public class RouteCreateActivity extends BaseActivity {
     private static final String PREF_ROUTE_RECORD_INTERVAL_SECONDS = "pref_route_record_interval_seconds";
     private static final String PREF_ROUTE_CREATE = "route_create_prefs";
     private static final String MARKER_INDEX_KEY = "marker_index";
+    private static final String MARKER_TYPE_KEY = "marker_type";
+    private static final String MARKER_TYPE_START = "start";
+    private static final String MARKER_TYPE_VERTEX = "vertex";
     private static final double DEFAULT_ALTITUDE = 55d;
     private static final float DEFAULT_ZOOM_LEVEL = 18f;
+    private static final double ROUTE_CLOSED_TOLERANCE = 0.0000001d;
     private static final int DEFAULT_RECORD_INTERVAL_SECONDS = 3;
     private static final int MIN_RECORD_INTERVAL_SECONDS = 1;
     private static final int LOCATION_REFRESH_INTERVAL_MS = 1000;
@@ -105,6 +109,7 @@ public class RouteCreateActivity extends BaseActivity {
     private Button saveButton;
     private Button shareButton;
     private Button recordButton;
+    private Button closeRouteButton;
     private Button drawToolButton;
     private Button editToolButton;
     private Button keepToolButton;
@@ -119,6 +124,7 @@ public class RouteCreateActivity extends BaseActivity {
     private int toolMode = TOOL_MODE_DRAW;
     private int selectedPointIndex = -1;
     private boolean toolboxCollapsed;
+    private boolean closeRoutePromptVisible;
     private String editingRouteId;
     private String editingRouteName;
     private RouteShareInfo editingShareInfo = RouteShareInfo.NONE;
@@ -224,10 +230,12 @@ public class RouteCreateActivity extends BaseActivity {
                 }
                 if (toolMode == TOOL_MODE_EDIT) {
                     selectedPointIndex = -1;
+                    closeRoutePromptVisible = false;
                     updateCreateModeUi();
                     drawRoute(viewModel.getCurrentPoints());
                     return;
                 }
+                closeRoutePromptVisible = false;
                 viewModel.addPoint(buildRoutePoint(latLng, DEFAULT_ALTITUDE));
             }
 
@@ -240,16 +248,29 @@ public class RouteCreateActivity extends BaseActivity {
     }
 
     private boolean handleMarkerClick(Marker marker) {
-        if (isRecordModeEnabled() || toolMode != TOOL_MODE_EDIT) {
+        if (isRecordModeEnabled()) {
             return false;
         }
         if (marker == null || marker.getExtraInfo() == null) {
             return false;
         }
-        selectedPointIndex = marker.getExtraInfo().getInt(MARKER_INDEX_KEY, -1);
+        String markerType = marker.getExtraInfo().getString(MARKER_TYPE_KEY, MARKER_TYPE_VERTEX);
+        if (toolMode == TOOL_MODE_EDIT) {
+            selectedPointIndex = marker.getExtraInfo().getInt(MARKER_INDEX_KEY, -1);
+            closeRoutePromptVisible = false;
+            updateCreateModeUi();
+            drawRoute(viewModel.getCurrentPoints());
+            return true;
+        }
+        if (MARKER_TYPE_START.equals(markerType) && canCloseCurrentRoute()) {
+            closeRoutePromptVisible = true;
+            selectedPointIndex = -1;
+            updateCreateModeUi();
+            return true;
+        }
+        closeRoutePromptVisible = false;
         updateCreateModeUi();
-        drawRoute(viewModel.getCurrentPoints());
-        return true;
+        return false;
     }
 
     private void initButtons() {
@@ -259,6 +280,7 @@ public class RouteCreateActivity extends BaseActivity {
         saveButton = findViewById(R.id.btn_create_save);
         shareButton = findViewById(R.id.btn_create_share);
         recordButton = findViewById(R.id.btn_create_record);
+        closeRouteButton = findViewById(R.id.btn_create_close_route);
         recordModeSwitch = findViewById(R.id.switch_create_record_mode);
         drawToolButton = findViewById(R.id.btn_create_tool_draw);
         editToolButton = findViewById(R.id.btn_create_tool_edit);
@@ -283,12 +305,14 @@ public class RouteCreateActivity extends BaseActivity {
                 return;
             }
             selectedPointIndex = -1;
+            closeRoutePromptVisible = false;
             viewModel.clear();
             updateCreateModeUi();
         });
         saveButton.setOnClickListener(v -> showSaveDialog());
         shareButton.setOnClickListener(v -> showShareDialog());
         recordButton.setOnClickListener(v -> toggleRecording());
+        closeRouteButton.setOnClickListener(v -> closeCurrentRoute());
         recordSettingsButton.setOnClickListener(v -> showRecordSettingsDialog());
         locationButton.setOnClickListener(v -> moveToCurrentLocation());
         drawToolButton.setOnClickListener(v -> switchToolMode(TOOL_MODE_DRAW));
@@ -477,6 +501,9 @@ public class RouteCreateActivity extends BaseActivity {
             if (selectedPointIndex >= routePoints.size()) {
                 selectedPointIndex = -1;
             }
+            if (!canCloseCurrentRoute()) {
+                closeRoutePromptVisible = false;
+            }
             drawRoute(routePoints);
             updateCreateModeUi();
         });
@@ -542,19 +569,30 @@ public class RouteCreateActivity extends BaseActivity {
                                 : getRouteVertexDescriptor());
                 android.os.Bundle bundle = new android.os.Bundle();
                 bundle.putInt(MARKER_INDEX_KEY, index);
+                bundle.putString(MARKER_TYPE_KEY, MARKER_TYPE_VERTEX);
                 markerOptions.extraInfo(bundle);
                 baiduMap.addOverlay(markerOptions);
             }
         } else {
             LatLng firstPoint = latLngs.get(0);
             LatLng lastPoint = latLngs.get(latLngs.size() - 1);
-            baiduMap.addOverlay(new MarkerOptions()
+            MarkerOptions startMarker = new MarkerOptions()
                     .position(firstPoint)
-                    .icon(getRouteVertexDescriptor()));
+                    .icon(getRouteVertexDescriptor());
+            android.os.Bundle startBundle = new android.os.Bundle();
+            startBundle.putInt(MARKER_INDEX_KEY, 0);
+            startBundle.putString(MARKER_TYPE_KEY, MARKER_TYPE_START);
+            startMarker.extraInfo(startBundle);
+            baiduMap.addOverlay(startMarker);
             if (latLngs.size() > 1) {
-                baiduMap.addOverlay(new MarkerOptions()
+                MarkerOptions endMarker = new MarkerOptions()
                         .position(lastPoint)
-                        .icon(getSelectedRouteVertexDescriptor()));
+                        .icon(getSelectedRouteVertexDescriptor());
+                android.os.Bundle endBundle = new android.os.Bundle();
+                endBundle.putInt(MARKER_INDEX_KEY, latLngs.size() - 1);
+                endBundle.putString(MARKER_TYPE_KEY, MARKER_TYPE_VERTEX);
+                endMarker.extraInfo(endBundle);
+                baiduMap.addOverlay(endMarker);
             }
         }
 
@@ -678,6 +716,7 @@ public class RouteCreateActivity extends BaseActivity {
             return;
         }
         toolMode = newMode;
+        closeRoutePromptVisible = false;
         if (toolMode != TOOL_MODE_EDIT) {
             selectedPointIndex = -1;
         }
@@ -687,6 +726,7 @@ public class RouteCreateActivity extends BaseActivity {
 
     private void clearSelectedPoint() {
         selectedPointIndex = -1;
+        closeRoutePromptVisible = false;
         updateCreateModeUi();
         drawRoute(viewModel.getCurrentPoints());
     }
@@ -697,7 +737,42 @@ public class RouteCreateActivity extends BaseActivity {
         }
         viewModel.removePointAt(selectedPointIndex);
         selectedPointIndex = -1;
+        closeRoutePromptVisible = false;
         GoUtils.DisplayToast(this, getString(R.string.route_selected_point_deleted));
+    }
+
+    private void closeCurrentRoute() {
+        if (!canCloseCurrentRoute()) {
+            closeRoutePromptVisible = false;
+            updateCreateModeUi();
+            return;
+        }
+        List<RoutePoint> points = viewModel.getCurrentPoints();
+        RoutePoint startPoint = points.get(0);
+        viewModel.addPoint(new RoutePoint(
+                startPoint.getBdLongitude(),
+                startPoint.getBdLatitude(),
+                startPoint.getWgsLongitude(),
+                startPoint.getWgsLatitude(),
+                startPoint.getAltitude()
+        ));
+        closeRoutePromptVisible = false;
+        GoUtils.DisplayToast(this, getString(R.string.route_closed_success));
+    }
+
+    private boolean canCloseCurrentRoute() {
+        List<RoutePoint> points = viewModel.getCurrentPoints();
+        return points.size() >= 3 && !isRouteClosed(points);
+    }
+
+    private boolean isRouteClosed(@Nullable List<RoutePoint> points) {
+        if (points == null || points.size() < 2) {
+            return false;
+        }
+        RoutePoint firstPoint = points.get(0);
+        RoutePoint lastPoint = points.get(points.size() - 1);
+        return Math.abs(firstPoint.getBdLongitude() - lastPoint.getBdLongitude()) <= ROUTE_CLOSED_TOLERANCE
+                && Math.abs(firstPoint.getBdLatitude() - lastPoint.getBdLatitude()) <= ROUTE_CLOSED_TOLERANCE;
     }
 
     private double sanitizeAltitude(@NonNull BDLocation bdLocation) {
@@ -734,6 +809,14 @@ public class RouteCreateActivity extends BaseActivity {
         }
         if (shareButton != null) {
             shareButton.setEnabled(!isRecording);
+        }
+        if (closeRouteButton != null) {
+            boolean showCloseRoute = !isRecording
+                    && !recordModeEnabled
+                    && toolMode == TOOL_MODE_DRAW
+                    && closeRoutePromptVisible
+                    && canCloseCurrentRoute();
+            closeRouteButton.setVisibility(showCloseRoute ? View.VISIBLE : View.GONE);
         }
 
         boolean showToolbox = !recordModeEnabled && !isRecording && !toolboxCollapsed;
@@ -776,6 +859,8 @@ public class RouteCreateActivity extends BaseActivity {
             routeHintView.setText(selectedPointIndex >= 0
                     ? getString(R.string.route_selected_point_format, selectedPointIndex + 1)
                     : getString(R.string.route_edit_mode_hint));
+        } else if (closeRoutePromptVisible && canCloseCurrentRoute()) {
+            routeHintView.setText(R.string.route_close_hint);
         } else if (!TextUtils.isEmpty(editingRouteId)) {
             routeHintView.setText(R.string.route_draw_mode_hint);
         } else {

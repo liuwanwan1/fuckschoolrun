@@ -4,6 +4,8 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.os.IBinder;
 import android.text.TextUtils;
 import android.view.View;
@@ -12,6 +14,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -46,8 +49,10 @@ import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
 import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.service.ServiceGo;
 import com.acooldog.toolbox.utils.GoUtils;
+import com.acooldog.toolbox.utils.SearchSortUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -287,32 +292,39 @@ public class RouteRunActivity extends BaseActivity {
             GoUtils.DisplayToast(this, getString(R.string.route_shared_empty));
             return;
         }
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_searchable_picker, null);
+        EditText searchInput = dialogView.findViewById(R.id.searchable_picker_input);
+        ListView listView = dialogView.findViewById(R.id.searchable_picker_list);
+        List<SearchableRouteItem> allItems = buildRouteItems(routes);
+        List<SearchableRouteItem> filteredItems = new ArrayList<>(allItems);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+        fillRouteAdapter(adapter, filteredItems);
+        listView.setAdapter(adapter);
 
-        CharSequence[] routeNames = new CharSequence[routes.size()];
-        for (int index = 0; index < routes.size(); index++) {
-            SharedRouteSummary route = routes.get(index);
-            String privacyTag = route.isPrivacyMode() ? getString(R.string.route_shared_privacy_tag) + " " : "";
-            routeNames[index] = String.format(
-                    Locale.getDefault(),
-                    "%s%s · %d %s",
-                    privacyTag,
-                    route.getName(),
-                    route.getPointCount(),
-                    getString(R.string.route_points_unit)
-            );
-        }
-
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.route_shared_pick_title)
-                .setItems(routeNames, (dialog, which) -> {
-                    SharedRouteSummary summary = routes.get(which);
-                    if (summary.isPrivacyMode()) {
-                        loadSharedRouteForSimulation(summary.getId(), summary.getName());
-                    } else {
-                        downloadSharedRoute(summary);
-                    }
-                })
-                .show();
+                .setView(dialogView)
+                .setNegativeButton(R.string.route_share_cancel, null)
+                .create();
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            if (filteredItems.isEmpty()) {
+                return;
+            }
+            dialog.dismiss();
+            SharedRouteSummary summary = filteredItems.get(position).summary;
+            if (summary.isPrivacyMode()) {
+                loadSharedRouteForSimulation(summary.getId(), summary.getName());
+            } else {
+                downloadSharedRoute(summary);
+            }
+        });
+        searchInput.addTextChangedListener(new SimpleTextWatcher() {
+            @Override
+            public void afterTextChanged(Editable editable) {
+                filterRouteItems(editable == null ? "" : editable.toString(), allItems, filteredItems, adapter);
+            }
+        });
+        dialog.show();
     }
 
     private void downloadSharedRoute(SharedRouteSummary summary) {
@@ -432,17 +444,34 @@ public class RouteRunActivity extends BaseActivity {
             GoUtils.DisplayToast(this, getString(R.string.nfc_download_empty));
             return;
         }
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_searchable_picker, null);
+        EditText searchInput = dialogView.findViewById(R.id.searchable_picker_input);
+        ListView listView = dialogView.findViewById(R.id.searchable_picker_list);
+        List<SearchableNfcItem> allItems = buildNfcItems(entries);
+        List<SearchableNfcItem> filteredItems = new ArrayList<>(allItems);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+        fillNfcAdapter(adapter, filteredItems);
+        listView.setAdapter(adapter);
 
-        CharSequence[] items = new CharSequence[entries.size()];
-        for (int index = 0; index < entries.size(); index++) {
-            SharedNfcEntry entry = entries.get(index);
-            items[index] = entry.getName() + " · " + entry.getPackageName();
-        }
-
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.nfc_download_pick_title)
-                .setItems(items, (dialog, which) -> applyNfcConfigAndSimulate(entries.get(which)))
-                .show();
+                .setView(dialogView)
+                .setNegativeButton(R.string.nfc_share_cancel, null)
+                .create();
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            if (filteredItems.isEmpty()) {
+                return;
+            }
+            dialog.dismiss();
+            applyNfcConfigAndSimulate(filteredItems.get(position).entry);
+        });
+        searchInput.addTextChangedListener(new SimpleTextWatcher() {
+            @Override
+            public void afterTextChanged(Editable editable) {
+                filterNfcItems(editable == null ? "" : editable.toString(), allItems, filteredItems, adapter);
+            }
+        });
+        dialog.show();
     }
 
     private void showManualNfcInputDialog() {
@@ -732,5 +761,124 @@ public class RouteRunActivity extends BaseActivity {
                 serviceBinder.setMotion(longitude, latitude, altitude, speed, bearing);
             }
         }
+    }
+
+    private static final class SearchableRouteItem {
+        private final SharedRouteSummary summary;
+        private final String displayText;
+        private final String sortKey;
+
+        private SearchableRouteItem(SharedRouteSummary summary, String displayText, String sortKey) {
+            this.summary = summary;
+            this.displayText = displayText;
+            this.sortKey = sortKey;
+        }
+    }
+
+    private static final class SearchableNfcItem {
+        private final SharedNfcEntry entry;
+        private final String displayText;
+        private final String sortKey;
+
+        private SearchableNfcItem(SharedNfcEntry entry, String displayText, String sortKey) {
+            this.entry = entry;
+            this.displayText = displayText;
+            this.sortKey = sortKey;
+        }
+    }
+
+    private abstract static class SimpleTextWatcher implements TextWatcher {
+        @Override
+        public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            // No-op.
+        }
+
+        @Override
+        public void onTextChanged(CharSequence s, int start, int before, int count) {
+            // No-op.
+        }
+    }
+
+    private List<SearchableRouteItem> buildRouteItems(List<SharedRouteSummary> routes) {
+        List<SearchableRouteItem> items = new ArrayList<>();
+        for (SharedRouteSummary route : routes) {
+            String privacyTag = route.isPrivacyMode() ? getString(R.string.route_shared_privacy_tag) + " " : "";
+            String displayText = String.format(
+                    Locale.getDefault(),
+                    "%s%s · %d %s",
+                    privacyTag,
+                    route.getName(),
+                    route.getPointCount(),
+                    getString(R.string.route_points_unit)
+            );
+            items.add(new SearchableRouteItem(route, displayText, SearchSortUtils.buildSortKey(route.getName())));
+        }
+        items.sort(Comparator.comparing(item -> item.sortKey));
+        return items;
+    }
+
+    private void fillRouteAdapter(ArrayAdapter<String> adapter, List<SearchableRouteItem> items) {
+        adapter.clear();
+        if (items.isEmpty()) {
+            adapter.add(getString(R.string.searchable_picker_empty));
+        } else {
+            for (SearchableRouteItem item : items) {
+                adapter.add(item.displayText);
+            }
+        }
+        adapter.notifyDataSetChanged();
+    }
+
+    private void filterRouteItems(
+            String query,
+            List<SearchableRouteItem> sourceItems,
+            List<SearchableRouteItem> filteredItems,
+            ArrayAdapter<String> adapter
+    ) {
+        filteredItems.clear();
+        for (SearchableRouteItem item : sourceItems) {
+            if (SearchSortUtils.matches(query, item.summary.getName())) {
+                filteredItems.add(item);
+            }
+        }
+        fillRouteAdapter(adapter, filteredItems);
+    }
+
+    private List<SearchableNfcItem> buildNfcItems(List<SharedNfcEntry> entries) {
+        List<SearchableNfcItem> items = new ArrayList<>();
+        for (SharedNfcEntry entry : entries) {
+            String displayText = entry.getName() + " · " + entry.getPackageName();
+            items.add(new SearchableNfcItem(entry, displayText, SearchSortUtils.buildSortKey(entry.getName())));
+        }
+        items.sort(Comparator.comparing(item -> item.sortKey));
+        return items;
+    }
+
+    private void fillNfcAdapter(ArrayAdapter<String> adapter, List<SearchableNfcItem> items) {
+        adapter.clear();
+        if (items.isEmpty()) {
+            adapter.add(getString(R.string.searchable_picker_empty));
+        } else {
+            for (SearchableNfcItem item : items) {
+                adapter.add(item.displayText);
+            }
+        }
+        adapter.notifyDataSetChanged();
+    }
+
+    private void filterNfcItems(
+            String query,
+            List<SearchableNfcItem> sourceItems,
+            List<SearchableNfcItem> filteredItems,
+            ArrayAdapter<String> adapter
+    ) {
+        filteredItems.clear();
+        for (SearchableNfcItem item : sourceItems) {
+            if (SearchSortUtils.matches(query, item.entry.getName())
+                    || SearchSortUtils.matches(query, item.entry.getPackageName())) {
+                filteredItems.add(item);
+            }
+        }
+        fillNfcAdapter(adapter, filteredItems);
     }
 }
