@@ -3,6 +3,10 @@ package com.acooldog.toolbox;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -18,12 +22,14 @@ import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.baidu.mapapi.map.BaiduMap;
+import com.baidu.mapapi.map.BitmapDescriptor;
 import com.baidu.mapapi.map.BitmapDescriptorFactory;
 import com.baidu.mapapi.map.MapStatusUpdateFactory;
 import com.baidu.mapapi.map.MapView;
@@ -76,6 +82,7 @@ public class RouteRunActivity extends BaseActivity {
     private CheckBox speedFloatCheckBox;
     private Button toggleButton;
     private Marker simulationMarker;
+    private BitmapDescriptor simulationProgressDescriptor;
     private ServiceGo.ServiceGoBinder serviceBinder;
     private boolean bound;
     private boolean mockLocationPromptShown;
@@ -177,6 +184,7 @@ public class RouteRunActivity extends BaseActivity {
         if (ioExecutor != null) {
             ioExecutor.shutdownNow();
         }
+        recycleMapDescriptors();
         mapView.onDestroy();
         super.onDestroy();
     }
@@ -213,7 +221,7 @@ public class RouteRunActivity extends BaseActivity {
             if (simulationMarker == null) {
                 simulationMarker = (Marker) baiduMap.addOverlay(new MarkerOptions()
                         .position(latLng)
-                        .icon(BitmapDescriptorFactory.fromResource(R.drawable.marker_route_progress)));
+                        .icon(getSimulationProgressDescriptor()));
             } else {
                 simulationMarker.setPosition(latLng);
             }
@@ -552,7 +560,7 @@ public class RouteRunActivity extends BaseActivity {
             double cadence = simulationMode == RouteSimulationConfig.Mode.CADENCE
                     ? parseSimulationValue(cadenceInput)
                     : 0d;
-            int loopCount = Integer.parseInt(loopInput.getText().toString().trim());
+            int loopCount = parseLoopCount(loopInput);
             RouteSimulationConfig config = new RouteSimulationConfig(
                     simulationMode,
                     speed,
@@ -564,8 +572,10 @@ public class RouteRunActivity extends BaseActivity {
             ensureServiceStarted(routeDefinition);
             viewModel.startSimulation(config, new ServiceGateway());
             GoUtils.DisplayToast(this, "路线模拟已启动");
+        } catch (IllegalArgumentException exception) {
+            GoUtils.DisplayToast(this, getString(R.string.route_simulation_invalid));
         } catch (Exception exception) {
-            GoUtils.DisplayToast(this, "模拟参数无效");
+            GoUtils.DisplayToast(this, buildDetailedToast(R.string.route_simulation_start_failed, exception));
         }
     }
 
@@ -742,6 +752,21 @@ public class RouteRunActivity extends BaseActivity {
         return value;
     }
 
+    private int parseLoopCount(EditText input) {
+        if (input == null || input.getText() == null) {
+            throw new IllegalArgumentException("loop count is required");
+        }
+        String raw = input.getText().toString().trim();
+        if (TextUtils.isEmpty(raw)) {
+            throw new IllegalArgumentException("loop count is required");
+        }
+        int value = Integer.parseInt(raw);
+        if (value <= 0) {
+            throw new IllegalArgumentException("loop count must be positive");
+        }
+        return value;
+    }
+
     private void restoreLastRouteSelection() {
         String routeId = prefsStore.getLastRouteId();
         if (TextUtils.isEmpty(routeId)) {
@@ -760,6 +785,42 @@ public class RouteRunActivity extends BaseActivity {
             if (serviceBinder != null) {
                 serviceBinder.setMotion(longitude, latitude, altitude, speed, bearing);
             }
+        }
+    }
+
+    @NonNull
+    private BitmapDescriptor getSimulationProgressDescriptor() {
+        if (simulationProgressDescriptor == null) {
+            simulationProgressDescriptor = createCircleMarkerDescriptor(18, "#D32F2F");
+        }
+        return simulationProgressDescriptor;
+    }
+
+    @NonNull
+    private BitmapDescriptor createCircleMarkerDescriptor(int sizeDp, @NonNull String fillColor) {
+        int sizePx = Math.max(1, Math.round(getResources().getDisplayMetrics().density * sizeDp));
+        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        float center = sizePx / 2f;
+        float outerRadius = center;
+        float innerRadius = Math.max(1f, outerRadius - (getResources().getDisplayMetrics().density * 3f));
+
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setColor(Color.WHITE);
+        strokePaint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(center, center, outerRadius, strokePaint);
+
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setColor(Color.parseColor(fillColor));
+        fillPaint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(center, center, innerRadius, fillPaint);
+        return BitmapDescriptorFactory.fromBitmap(bitmap);
+    }
+
+    private void recycleMapDescriptors() {
+        if (simulationProgressDescriptor != null) {
+            simulationProgressDescriptor.recycle();
+            simulationProgressDescriptor = null;
         }
     }
 

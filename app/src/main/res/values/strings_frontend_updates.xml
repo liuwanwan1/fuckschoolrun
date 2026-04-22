@@ -72,6 +72,8 @@
     <string name="route_item_privacy_locked">隐私不可下</string>
     <string name="route_item_simulate_privacy">直接模拟</string>
     <string name="route_item_read_only">隐私只读</string>
+    <string name="route_simulation_invalid">模拟参数无效，请检查速度、步频和循环次数。</string>
+    <string name="route_simulation_start_failed">启动路线模拟失败：</string>
     <string name="route_delete_title">删除路线</string>
     <string name="route_delete_message">确定要删除这条本地路线吗？</string>
     <string name="route_delete_success">路线已删除</string>
