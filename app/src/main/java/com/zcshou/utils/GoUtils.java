@@ -242,7 +242,13 @@ public class GoUtils {
                         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         context.startActivity(intent);
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        try {
+                            Intent fallbackIntent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.getPackageName()));
+                            fallbackIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            context.startActivity(fallbackIntent);
+                        } catch (Exception ignored) {
+                            e.printStackTrace();
+                        }
                     }
                 })
                 .setNegativeButton("取消", (dialog, which) -> {
