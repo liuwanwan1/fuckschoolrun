@@ -340,13 +340,93 @@
                         android:max="90"
                         android:progress="58" />
 
-                    <View
+                    <TextView
+                        android:id="@+id/tv_dialog_floating_window_button_size"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/route_floating_window_button_size_default" />
+
+                    <SeekBar
+                        android:id="@+id/seek_dialog_floating_window_button_size"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="72"
+                        android:progress="44" />
+
+                    <LinearLayout
                         android:id="@+id/view_dialog_floating_window_preview"
                         android:layout_width="140dp"
                         android:layout_height="96dp"
                         android:layout_gravity="center_horizontal"
                         android:layout_marginTop="8dp"
-                        android:background="#DDE7F7" />
+                        android:background="#DDE7F7"
+                        android:orientation="vertical"
+                        android:padding="6dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/route_floating_window_title"
+                            android:textColor="#111111"
+                            android:textSize="9sp" />
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="0dp"
+                            android:layout_marginTop="4dp"
+                            android:layout_weight="1"
+                            android:background="#F7F9FC" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:gravity="center"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:id="@+id/tv_dialog_floating_preview_pause"
+                                android:layout_width="44dp"
+                                android:layout_height="24dp"
+                                android:background="#1565C0"
+                                android:gravity="center"
+                                android:text="@string/route_floating_window_pause"
+                                android:textColor="#FFFFFF"
+                                android:textSize="8sp" />
+
+                            <TextView
+                                android:id="@+id/tv_dialog_floating_preview_resume"
+                                android:layout_width="44dp"
+                                android:layout_height="24dp"
+                                android:layout_marginStart="6dp"
+                                android:background="#2E7D32"
+                                android:gravity="center"
+                                android:text="@string/route_floating_window_resume"
+                                android:textColor="#FFFFFF"
+                                android:textSize="8sp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <View
+                                android:layout_width="18dp"
+                                android:layout_height="6dp"
+                                android:background="#6B7280" />
+
+                            <View
+                                android:layout_width="0dp"
+                                android:layout_height="6dp"
+                                android:layout_marginStart="8dp"
+                                android:layout_weight="1"
+                                android:background="#B8C3D8" />
+                        </LinearLayout>
+                    </LinearLayout>
 
                     <TextView
                         android:layout_width="match_parent"

@@ -35,6 +35,7 @@ public final class SimulationPrefsStore {
     private static final String KEY_ROUTE_COMPLETION_PENDING = "route_completion_pending";
     private static final String KEY_ROUTE_FLOATING_WINDOW_ENABLED = "route_floating_window_enabled";
     private static final String KEY_ROUTE_FLOATING_WINDOW_SCALE = "route_floating_window_scale";
+    private static final String KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE = "route_floating_window_button_size";
     private static final String KEY_NFC_URL = "nfc_url";
     private static final String KEY_NFC_PACKAGE = "nfc_package";
     private static final String KEY_NFC_SOURCE = "nfc_source";
@@ -139,6 +140,10 @@ public final class SimulationPrefsStore {
         return clampFloatingScale(preferences.getFloat(KEY_ROUTE_FLOATING_WINDOW_SCALE, 0.58f));
     }
 
+    public float getRouteFloatingWindowButtonSizeDp() {
+        return clampFloatingButtonSize(preferences.getFloat(KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE, 44f));
+    }
+
     public void saveRouteConfig(
             String routeMode,
             String speed,
@@ -207,9 +212,14 @@ public final class SimulationPrefsStore {
     }
 
     public void saveRouteFloatingWindowSettings(boolean enabled, float scale) {
+        saveRouteFloatingWindowSettings(enabled, scale, getRouteFloatingWindowButtonSizeDp());
+    }
+
+    public void saveRouteFloatingWindowSettings(boolean enabled, float scale, float buttonSizeDp) {
         preferences.edit()
                 .putBoolean(KEY_ROUTE_FLOATING_WINDOW_ENABLED, enabled)
                 .putFloat(KEY_ROUTE_FLOATING_WINDOW_SCALE, clampFloatingScale(scale))
+                .putFloat(KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE, clampFloatingButtonSize(buttonSizeDp))
                 .apply();
     }
 
@@ -314,6 +324,10 @@ public final class SimulationPrefsStore {
 
     private float clampFloatingScale(float value) {
         return Math.max(0.35f, Math.min(0.90f, value));
+    }
+
+    private float clampFloatingButtonSize(float value) {
+        return Math.max(32f, Math.min(72f, value));
     }
 
     private String normalizeRouteMode(String routeMode) {

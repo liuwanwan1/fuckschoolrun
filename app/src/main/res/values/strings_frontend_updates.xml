@@ -125,6 +125,7 @@
     <string name="route_live_edit_not_supported">当前路线不支持实时编辑，请先使用本地可见路线。</string>
     <string name="route_live_edit_persist_failed">保存实时编辑后的路线失败：</string>
     <string name="route_tool_auto_add">自动加点</string>
+    <string name="route_tool_auto_reduce">自动减点</string>
     <string name="route_tool_smooth_corner">防直角</string>
     <string name="route_auto_add_title">自动加点</string>
     <string name="route_auto_add_message">请输入要在当前路线上均匀新增的点数。</string>
@@ -133,6 +134,14 @@
     <string name="route_auto_add_invalid">自动加点数量无效。</string>
     <string name="route_auto_add_need_points">至少需要两个点才能自动加点。</string>
     <string name="route_auto_add_success">已在当前路线中均匀新增 %1$d 个点。</string>
+    <string name="route_auto_reduce_title">自动减点</string>
+    <string name="route_auto_reduce_message">当前路线共有 %1$d 个节点，其中关键节点 %2$d 个不可删除，最多可删除 %3$d 个节点。</string>
+    <string name="route_auto_reduce_hint">10</string>
+    <string name="route_auto_reduce_confirm">开始减点</string>
+    <string name="route_auto_reduce_invalid">自动减点数量无效，最多可删除 %1$d 个节点。</string>
+    <string name="route_auto_reduce_need_points">至少需要三个点才能自动减点。</string>
+    <string name="route_auto_reduce_nothing">当前路线没有可删除的非关键节点。</string>
+    <string name="route_auto_reduce_success">已从当前路线中均匀删除 %1$d 个非关键节点。</string>
     <string name="route_smooth_corner_title">防直角</string>
     <string name="route_smooth_corner_message">请输入圆角半径（米），系统会把 85°-95° 的近直角转成圆角过渡。</string>
     <string name="route_smooth_corner_hint">3.0</string>

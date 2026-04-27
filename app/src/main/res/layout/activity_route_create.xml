@@ -141,6 +141,14 @@
                 android:text="@string/route_tool_auto_add" />
 
             <Button
+                android:id="@+id/btn_create_tool_auto_reduce"
+                android:layout_width="72dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:minHeight="36dp"
+                android:text="@string/route_tool_auto_reduce" />
+
+            <Button
                 android:id="@+id/btn_create_tool_smooth_corner"
                 android:layout_width="72dp"
                 android:layout_height="wrap_content"

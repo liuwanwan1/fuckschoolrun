@@ -115,6 +115,7 @@ public class RouteCreateActivity extends BaseActivity {
     private Button drawToolButton;
     private Button editToolButton;
     private Button autoAddToolButton;
+    private Button autoReduceToolButton;
     private Button smoothCornerToolButton;
     private Button undoToolButton;
     private Button redoToolButton;
@@ -302,6 +303,7 @@ public class RouteCreateActivity extends BaseActivity {
         drawToolButton = findViewById(R.id.btn_create_tool_draw);
         editToolButton = findViewById(R.id.btn_create_tool_edit);
         autoAddToolButton = findViewById(R.id.btn_create_tool_auto_add);
+        autoReduceToolButton = findViewById(R.id.btn_create_tool_auto_reduce);
         smoothCornerToolButton = findViewById(R.id.btn_create_tool_smooth_corner);
         undoToolButton = findViewById(R.id.btn_create_tool_undo);
         redoToolButton = findViewById(R.id.btn_create_tool_redo);
@@ -339,6 +341,7 @@ public class RouteCreateActivity extends BaseActivity {
         drawToolButton.setOnClickListener(v -> switchToolMode(TOOL_MODE_DRAW));
         editToolButton.setOnClickListener(v -> switchToolMode(TOOL_MODE_EDIT));
         autoAddToolButton.setOnClickListener(v -> showAutoAddPointsDialog());
+        autoReduceToolButton.setOnClickListener(v -> showAutoReducePointsDialog());
         smoothCornerToolButton.setOnClickListener(v -> showSmoothCornersDialog());
         undoToolButton.setOnClickListener(v -> {
             selectedPointIndex = -1;
@@ -796,6 +799,57 @@ public class RouteCreateActivity extends BaseActivity {
                 .show();
     }
 
+    private void showAutoReducePointsDialog() {
+        if (isRecording) {
+            return;
+        }
+        List<RoutePoint> currentPoints = viewModel.getCurrentPoints();
+        if (currentPoints.size() < 3) {
+            GoUtils.DisplayToast(this, getString(R.string.route_auto_reduce_need_points));
+            return;
+        }
+        int keyPointCount = RouteEditUtils.countKeyRoutePoints(currentPoints);
+        int maxRemoveCount = RouteEditUtils.countRemovableRoutePoints(currentPoints);
+        if (maxRemoveCount <= 0) {
+            GoUtils.DisplayToast(this, getString(R.string.route_auto_reduce_nothing));
+            return;
+        }
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(Math.min(10, maxRemoveCount)));
+        input.setHint(getString(R.string.route_auto_reduce_hint));
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_auto_reduce_title)
+                .setMessage(getString(
+                        R.string.route_auto_reduce_message,
+                        currentPoints.size(),
+                        keyPointCount,
+                        maxRemoveCount
+                ))
+                .setView(input)
+                .setPositiveButton(R.string.route_auto_reduce_confirm, (dialog, which) -> {
+                    String rawValue = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (TextUtils.isEmpty(rawValue)) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_auto_reduce_invalid, maxRemoveCount));
+                        return;
+                    }
+                    try {
+                        int count = Integer.parseInt(rawValue);
+                        if (count <= 0 || count > maxRemoveCount) {
+                            throw new IllegalArgumentException("count out of range");
+                        }
+                        selectedPointIndex = -1;
+                        closeRoutePromptVisible = false;
+                        viewModel.setPoints(RouteEditUtils.removeEvenlySpacedNonKeyPoints(currentPoints, count));
+                        GoUtils.DisplayToast(this, getString(R.string.route_auto_reduce_success, count));
+                    } catch (Exception exception) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_auto_reduce_invalid, maxRemoveCount));
+                    }
+                })
+                .setNegativeButton(R.string.route_share_cancel, null)
+                .show();
+    }
+
     private void showSmoothCornersDialog() {
         if (isRecording) {
             return;
@@ -979,6 +1033,11 @@ public class RouteCreateActivity extends BaseActivity {
         }
         if (autoAddToolButton != null) {
             autoAddToolButton.setEnabled(!isRecording && viewModel.getCurrentPoints().size() >= 2);
+        }
+        if (autoReduceToolButton != null) {
+            autoReduceToolButton.setEnabled(!isRecording
+                    && viewModel.getCurrentPoints().size() >= 3
+                    && RouteEditUtils.countRemovableRoutePoints(viewModel.getCurrentPoints()) > 0);
         }
         if (smoothCornerToolButton != null) {
             smoothCornerToolButton.setEnabled(!isRecording && viewModel.getCurrentPoints().size() >= 3);

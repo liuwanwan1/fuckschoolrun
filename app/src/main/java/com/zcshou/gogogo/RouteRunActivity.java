@@ -191,7 +191,9 @@ public class RouteRunActivity extends BaseActivity {
     private TextView settingsAltitudeProbabilityValueView;
     private Switch settingsFloatingWindowSwitch;
     private SeekBar settingsFloatingWindowScaleSeekBar;
+    private SeekBar settingsFloatingWindowButtonSizeSeekBar;
     private TextView settingsFloatingWindowScaleView;
+    private TextView settingsFloatingWindowButtonSizeView;
     private View settingsFloatingWindowPreview;
     private final Runnable reminderReplayRunnable = this::replayCompletionReminder;
     private Vibrator vibrator;
@@ -199,6 +201,7 @@ public class RouteRunActivity extends BaseActivity {
     private boolean panelDragTriggered;
     private int panelDragThresholdPx;
     private int selectedEditableRoutePointIndex = -1;
+    private int suppressRouteMarkerSelectionIndex = -1;
     private int routeEditTapSlopPx;
     private int routeEditRouteHitSlopPx;
     private float routeEditTapDownX;
@@ -214,6 +217,9 @@ public class RouteRunActivity extends BaseActivity {
     private BaiduMap floatingWindowBaiduMap;
     private TextView floatingWindowTitleView;
     private View floatingWindowHandle;
+    private View floatingWindowResizeHandle;
+    private TextView floatingWindowPauseButton;
+    private TextView floatingWindowResumeButton;
     private WindowManager.LayoutParams floatingWindowLayoutParams;
     private Marker floatingWindowMarker;
     private boolean floatingWindowVisible;
@@ -224,7 +230,11 @@ public class RouteRunActivity extends BaseActivity {
     private float floatingWindowDragStartRawY;
     private int floatingWindowDragStartX;
     private int floatingWindowDragStartY;
+    private float floatingWindowResizeStartRawX;
+    private float floatingWindowResizeStartRawY;
+    private float floatingWindowResizeStartScale;
     private final List<Integer> editableRoutePointIndices = new ArrayList<>();
+    private final Runnable showFloatingWindowRetryRunnable = this::maybeShowFloatingWindow;
 
     private final ActivityResultLauncher<String> activityRecognitionPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -368,6 +378,7 @@ public class RouteRunActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        mainHandler.removeCallbacks(showFloatingWindowRetryRunnable);
         mapView.onResume();
         hideFloatingWindow();
         if (prefsStore.isRouteCompletionPending()) {
@@ -382,11 +393,13 @@ public class RouteRunActivity extends BaseActivity {
         persistSimulationPrefs();
         mapView.onPause();
         super.onPause();
+        mainHandler.postDelayed(showFloatingWindowRetryRunnable, 250L);
     }
 
     @Override
     protected void onStop() {
         maybeShowFloatingWindow();
+        mainHandler.postDelayed(showFloatingWindowRetryRunnable, 600L);
         super.onStop();
     }
 
@@ -394,6 +407,7 @@ public class RouteRunActivity extends BaseActivity {
     protected void onDestroy() {
         stopRealRunSensorListener();
         stopReminderFeedback();
+        mainHandler.removeCallbacks(showFloatingWindowRetryRunnable);
         completionNoticePending = false;
         hideCompletionOverlay();
         removeFloatingWindow();
@@ -464,10 +478,12 @@ public class RouteRunActivity extends BaseActivity {
 
         viewModel.isRunning().observe(this, isRunning -> {
             renderToggleButtonState();
+            updateFloatingWindowControlsState();
         });
 
         viewModel.isResumable().observe(this, resumable -> {
             renderToggleButtonState();
+            updateFloatingWindowControlsState();
         });
 
         viewModel.getSimulationCompletedEvent().observe(this, token -> {
@@ -879,6 +895,30 @@ public class RouteRunActivity extends BaseActivity {
         }
     }
 
+    private void pauseSimulationFromFloatingWindow() {
+        if (!Boolean.TRUE.equals(viewModel.isRunning().getValue())) {
+            updateFloatingWindowControlsState();
+            return;
+        }
+        if (realRunLinkRunning) {
+            stopLinkedSimulationState();
+        }
+        hideCompletionOverlay();
+        viewModel.pauseSimulation();
+        renderToggleButtonState();
+        updateFloatingWindowControlsState();
+        GoUtils.DisplayToast(this, getString(R.string.route_simulation_paused));
+    }
+
+    private void resumeSimulationFromFloatingWindow() {
+        if (Boolean.TRUE.equals(viewModel.isRunning().getValue())) {
+            updateFloatingWindowControlsState();
+            return;
+        }
+        toggleSimulation();
+        updateFloatingWindowControlsState();
+    }
+
     private boolean ensureSimulationReady() {
         if (!GoUtils.isNetworkAvailable(this)) {
             GoUtils.DisplayToast(this, getResources().getString(R.string.app_error_network));
@@ -1020,6 +1060,7 @@ public class RouteRunActivity extends BaseActivity {
     private void clearLiveRouteEditState(boolean keepToggle) {
         liveRouteEditVerticesVisible = false;
         selectedEditableRoutePointIndex = -1;
+        suppressRouteMarkerSelectionIndex = -1;
         routeEditTapCandidate = false;
         suppressNextRouteEditTap = false;
         editableRoutePointIndices.clear();
@@ -1070,6 +1111,7 @@ public class RouteRunActivity extends BaseActivity {
         Point mapPoint = toMapLocalPoint(event);
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                suppressRouteMarkerSelectionIndex = -1;
                 routeEditTapCandidate = true;
                 routeEditTapDownX = mapPoint.x;
                 routeEditTapDownY = mapPoint.y;
@@ -1161,6 +1203,12 @@ public class RouteRunActivity extends BaseActivity {
         }
         suppressNextRouteEditTap = true;
         int tappedIndex = marker.getExtraInfo().getInt(ROUTE_EDIT_MARKER_INDEX_KEY, -1);
+        if (tappedIndex == suppressRouteMarkerSelectionIndex) {
+            suppressRouteMarkerSelectionIndex = -1;
+            selectedEditableRoutePointIndex = -1;
+            updateLiveRouteEditHint();
+            return true;
+        }
         selectedEditableRoutePointIndex = tappedIndex == selectedEditableRoutePointIndex ? -1 : tappedIndex;
         RouteDefinition routeDefinition = viewModel.getSelectedRoute().getValue();
         if (routeDefinition != null) {
@@ -1205,6 +1253,7 @@ public class RouteRunActivity extends BaseActivity {
         }
         shiftEditableRoutePointIndicesForInsert(insertIndex, updatedPoints.size());
         selectedEditableRoutePointIndex = -1;
+        suppressRouteMarkerSelectionIndex = insertIndex;
         RouteDefinition updatedRoute = new RouteDefinition(
                 routeDefinition.getId(),
                 routeDefinition.getName(),
@@ -1994,7 +2043,9 @@ public class RouteRunActivity extends BaseActivity {
         settingsAltitudeProbabilityValueView = dialogView.findViewById(R.id.tv_dialog_altitude_probability_value);
         settingsFloatingWindowSwitch = dialogView.findViewById(R.id.switch_dialog_floating_window);
         settingsFloatingWindowScaleSeekBar = dialogView.findViewById(R.id.seek_dialog_floating_window_scale);
+        settingsFloatingWindowButtonSizeSeekBar = dialogView.findViewById(R.id.seek_dialog_floating_window_button_size);
         settingsFloatingWindowScaleView = dialogView.findViewById(R.id.tv_dialog_floating_window_scale);
+        settingsFloatingWindowButtonSizeView = dialogView.findViewById(R.id.tv_dialog_floating_window_button_size);
         settingsFloatingWindowPreview = dialogView.findViewById(R.id.view_dialog_floating_window_preview);
         settingsReminderToneView = dialogView.findViewById(R.id.tv_dialog_ringtone);
         Button pickRingtoneButton = dialogView.findViewById(R.id.btn_dialog_pick_ringtone);
@@ -2026,7 +2077,8 @@ public class RouteRunActivity extends BaseActivity {
         updateAltitudeProbabilityValue(settingsAltitudeProbabilitySeekBar.getProgress());
         settingsFloatingWindowSwitch.setChecked(prefsStore.isRouteFloatingWindowEnabled());
         settingsFloatingWindowScaleSeekBar.setProgress(Math.round(prefsStore.getRouteFloatingWindowScale() * 100f));
-        updateFloatingWindowScalePreview(settingsFloatingWindowScaleSeekBar.getProgress());
+        settingsFloatingWindowButtonSizeSeekBar.setProgress(Math.round(prefsStore.getRouteFloatingWindowButtonSizeDp()));
+        updateFloatingWindowPreview();
         settingsReminderToneView.setText(resolveReminderToneTitle());
         pickRingtoneButton.setOnClickListener(v -> showReminderTonePickerDialog());
         uploadSettingsButton.setOnClickListener(v -> promptUploadSimulationSettings());
@@ -2078,7 +2130,23 @@ public class RouteRunActivity extends BaseActivity {
         settingsFloatingWindowScaleSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                updateFloatingWindowScalePreview(progress);
+                updateFloatingWindowPreview();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+        });
+        settingsFloatingWindowButtonSizeSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateFloatingWindowPreview();
             }
 
             @Override
@@ -2128,7 +2196,9 @@ public class RouteRunActivity extends BaseActivity {
             settingsAltitudeProbabilityValueView = null;
             settingsFloatingWindowSwitch = null;
             settingsFloatingWindowScaleSeekBar = null;
+            settingsFloatingWindowButtonSizeSeekBar = null;
             settingsFloatingWindowScaleView = null;
+            settingsFloatingWindowButtonSizeView = null;
             settingsFloatingWindowPreview = null;
             settingsReminderToneView = null;
         });
@@ -2178,6 +2248,9 @@ public class RouteRunActivity extends BaseActivity {
             float floatingWindowScale = settingsFloatingWindowScaleSeekBar == null
                     ? prefsStore.getRouteFloatingWindowScale()
                     : settingsFloatingWindowScaleSeekBar.getProgress() / 100f;
+            float floatingWindowButtonSize = settingsFloatingWindowButtonSizeSeekBar == null
+                    ? prefsStore.getRouteFloatingWindowButtonSizeDp()
+                    : settingsFloatingWindowButtonSizeSeekBar.getProgress();
             if (floatingWindowEnabled && !Settings.canDrawOverlays(getApplicationContext())) {
                 GoUtils.showEnableFloatWindowDialog(this);
                 throw new IllegalArgumentException(getString(R.string.route_floating_window_permission_required));
@@ -2194,9 +2267,10 @@ public class RouteRunActivity extends BaseActivity {
                     altitudeHeight,
                     altitudeVariationProbability
             );
-            prefsStore.saveRouteFloatingWindowSettings(floatingWindowEnabled, floatingWindowScale);
+            prefsStore.saveRouteFloatingWindowSettings(floatingWindowEnabled, floatingWindowScale, floatingWindowButtonSize);
             persistSimulationPrefsWithRatio(ratioNumerator);
             applySimulationConfigHotIfPossible();
+            refreshFloatingWindowSizeFromPrefs();
             if (!floatingWindowEnabled) {
                 hideFloatingWindow();
             }
@@ -2537,10 +2611,20 @@ public class RouteRunActivity extends BaseActivity {
         );
     }
 
-    private void updateFloatingWindowScalePreview(int progress) {
-        int clamped = Math.max(35, Math.min(90, progress));
+    private void updateFloatingWindowPreview() {
+        int scaleProgress = settingsFloatingWindowScaleSeekBar == null
+                ? Math.round(prefsStore.getRouteFloatingWindowScale() * 100f)
+                : settingsFloatingWindowScaleSeekBar.getProgress();
+        int buttonSizeProgress = settingsFloatingWindowButtonSizeSeekBar == null
+                ? Math.round(prefsStore.getRouteFloatingWindowButtonSizeDp())
+                : settingsFloatingWindowButtonSizeSeekBar.getProgress();
+        int clamped = Math.max(35, Math.min(90, scaleProgress));
+        int buttonSize = Math.max(32, Math.min(72, buttonSizeProgress));
         if (settingsFloatingWindowScaleView != null) {
             settingsFloatingWindowScaleView.setText(getString(R.string.route_floating_window_scale_format, clamped));
+        }
+        if (settingsFloatingWindowButtonSizeView != null) {
+            settingsFloatingWindowButtonSizeView.setText(getString(R.string.route_floating_window_button_size_format, buttonSize));
         }
         if (settingsFloatingWindowPreview != null) {
             ViewGroup.LayoutParams params = settingsFloatingWindowPreview.getLayoutParams();
@@ -2549,6 +2633,22 @@ public class RouteRunActivity extends BaseActivity {
                 params.height = Math.round(dp(clamped * 1.45f));
                 settingsFloatingWindowPreview.setLayoutParams(params);
             }
+            TextView pausePreview = settingsFloatingWindowPreview.findViewById(R.id.tv_dialog_floating_preview_pause);
+            TextView resumePreview = settingsFloatingWindowPreview.findViewById(R.id.tv_dialog_floating_preview_resume);
+            updatePreviewButtonSize(pausePreview, buttonSize);
+            updatePreviewButtonSize(resumePreview, buttonSize);
+        }
+    }
+
+    private void updatePreviewButtonSize(@Nullable TextView button, int buttonSizeDp) {
+        if (button == null) {
+            return;
+        }
+        ViewGroup.LayoutParams params = button.getLayoutParams();
+        if (params != null) {
+            params.width = Math.round(dp(buttonSizeDp));
+            params.height = Math.round(dp(Math.max(24, Math.round(buttonSizeDp * 0.56f))));
+            button.setLayoutParams(params);
         }
     }
 
@@ -3001,6 +3101,7 @@ public class RouteRunActivity extends BaseActivity {
             return;
         }
         ensureFloatingWindowView();
+        refreshFloatingWindowSizeFromPrefs();
         updateFloatingWindowRoute(viewModel.getSelectedRoute().getValue());
         syncFloatingWindowMarker();
         try {
@@ -3011,8 +3112,9 @@ public class RouteRunActivity extends BaseActivity {
                 floatingWindowManager.updateViewLayout(floatingWindowRoot, floatingWindowLayoutParams);
             }
             floatingWindowVisible = true;
+            updateFloatingWindowControlsState();
         } catch (Exception exception) {
-            XLog.e("RouteRunActivity: failed to show floating window");
+            XLog.e("RouteRunActivity: failed to show floating window: " + exception.getMessage());
         }
     }
 
@@ -3047,6 +3149,9 @@ public class RouteRunActivity extends BaseActivity {
         floatingWindowBaiduMap = null;
         floatingWindowMapView = null;
         floatingWindowTitleView = null;
+        floatingWindowPauseButton = null;
+        floatingWindowResumeButton = null;
+        floatingWindowResizeHandle = null;
         floatingWindowHandle = null;
         floatingWindowMarker = null;
         floatingWindowLayoutParams = null;
@@ -3057,6 +3162,9 @@ public class RouteRunActivity extends BaseActivity {
                 && floatingWindowMapView != null
                 && floatingWindowTitleView != null
                 && floatingWindowHandle != null
+                && floatingWindowPauseButton != null
+                && floatingWindowResumeButton != null
+                && floatingWindowResizeHandle != null
                 && floatingWindowLayoutParams != null) {
             return;
         }
@@ -3099,18 +3207,61 @@ public class RouteRunActivity extends BaseActivity {
         mapParams.topMargin = Math.round(dp(10f));
         container.addView(mapView, mapParams);
 
+        LinearLayout controlRow = new LinearLayout(this);
+        controlRow.setGravity(Gravity.CENTER);
+        controlRow.setOrientation(LinearLayout.HORIZONTAL);
+        controlRow.setPadding(0, Math.round(dp(8f)), 0, 0);
+        TextView pauseButton = buildFloatingControlButton(
+                getString(R.string.route_floating_window_pause),
+                Color.parseColor("#1565C0")
+        );
+        TextView resumeButton = buildFloatingControlButton(
+                getString(R.string.route_floating_window_resume),
+                Color.parseColor("#2E7D32")
+        );
+        controlRow.addView(pauseButton);
+        LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        resumeParams.leftMargin = Math.round(dp(8f));
+        controlRow.addView(resumeButton, resumeParams);
+        container.addView(controlRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
         LinearLayout handle = new LinearLayout(this);
-        handle.setGravity(Gravity.CENTER);
+        handle.setGravity(Gravity.CENTER_VERTICAL);
+        handle.setOrientation(LinearLayout.HORIZONTAL);
         handle.setPadding(0, Math.round(dp(10f)), 0, 0);
+        LinearLayout resizeHandle = new LinearLayout(this);
+        resizeHandle.setGravity(Gravity.CENTER);
+        View resizeBar = new View(this);
+        GradientDrawable resizeDrawable = new GradientDrawable();
+        resizeDrawable.setColor(Color.parseColor("#6B7280"));
+        resizeDrawable.setCornerRadius(dp(4f));
+        resizeBar.setBackground(resizeDrawable);
+        resizeHandle.addView(resizeBar, new LinearLayout.LayoutParams(
+                Math.round(dp(28f)),
+                Math.round(dp(6f))
+        ));
+        handle.addView(resizeHandle, new LinearLayout.LayoutParams(
+                Math.round(dp(48f)),
+                Math.round(dp(28f))
+        ));
         View handleBar = new View(this);
         GradientDrawable handleDrawable = new GradientDrawable();
         handleDrawable.setColor(Color.parseColor("#B8C3D8"));
         handleDrawable.setCornerRadius(dp(4f));
         handleBar.setBackground(handleDrawable);
         LinearLayout.LayoutParams handleBarParams = new LinearLayout.LayoutParams(
-                Math.round(dp(54f)),
-                Math.round(dp(6f))
+                0,
+                Math.round(dp(6f)),
+                1f
         );
+        handleBarParams.leftMargin = Math.round(dp(8f));
+        handleBarParams.rightMargin = Math.round(dp(8f));
         handle.addView(handleBar, handleBarParams);
         container.addView(handle, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -3137,6 +3288,9 @@ public class RouteRunActivity extends BaseActivity {
             return true;
         });
         mapView.setOnClickListener(v -> bringRouteRunToFrontForCompletion());
+        pauseButton.setOnClickListener(v -> pauseSimulationFromFloatingWindow());
+        resumeButton.setOnClickListener(v -> resumeSimulationFromFloatingWindow());
+        resizeHandle.setOnTouchListener(this::handleFloatingWindowResize);
         handle.setOnTouchListener(this::handleFloatingWindowDrag);
 
         floatingWindowLayoutParams = buildFloatingWindowLayoutParams();
@@ -3144,7 +3298,69 @@ public class RouteRunActivity extends BaseActivity {
         floatingWindowMapView = mapView;
         floatingWindowBaiduMap = overlayMap;
         floatingWindowTitleView = titleView;
+        floatingWindowPauseButton = pauseButton;
+        floatingWindowResumeButton = resumeButton;
+        floatingWindowResizeHandle = resizeHandle;
         floatingWindowHandle = handle;
+        applyFloatingWindowButtonSize();
+        updateFloatingWindowControlsState();
+    }
+
+    private TextView buildFloatingControlButton(@NonNull String text, int backgroundColor) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        button.setGravity(Gravity.CENTER);
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(backgroundColor);
+        drawable.setCornerRadius(dp(8f));
+        button.setBackground(drawable);
+        return button;
+    }
+
+    private void applyFloatingWindowButtonSize() {
+        int desiredButtonWidth = Math.round(dp(prefsStore.getRouteFloatingWindowButtonSizeDp()));
+        int buttonWidth = desiredButtonWidth;
+        if (floatingWindowLayoutParams != null) {
+            int maxButtonWidth = Math.max(
+                    Math.round(dp(32f)),
+                    (floatingWindowLayoutParams.width - Math.round(dp(48f))) / 2
+            );
+            buttonWidth = Math.min(desiredButtonWidth, maxButtonWidth);
+        }
+        int buttonHeight = Math.round(dp(Math.max(30f, prefsStore.getRouteFloatingWindowButtonSizeDp() * 0.62f)));
+        updateFloatingControlButtonSize(floatingWindowPauseButton, buttonWidth, buttonHeight);
+        updateFloatingControlButtonSize(floatingWindowResumeButton, buttonWidth, buttonHeight);
+    }
+
+    private void updateFloatingControlButtonSize(@Nullable TextView button, int width, int height) {
+        if (button == null) {
+            return;
+        }
+        ViewGroup.LayoutParams params = button.getLayoutParams();
+        if (params == null) {
+            params = new LinearLayout.LayoutParams(width, height);
+        }
+        params.width = width;
+        params.height = height;
+        button.setLayoutParams(params);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, width >= Math.round(dp(50f)) ? 13f : 12f);
+    }
+
+    private void updateFloatingWindowControlsState() {
+        boolean running = Boolean.TRUE.equals(viewModel.isRunning().getValue());
+        boolean resumable = viewModel.hasResumableSimulationForSelectedRoute();
+        setFloatingControlEnabled(floatingWindowPauseButton, running);
+        setFloatingControlEnabled(floatingWindowResumeButton, !running && resumable);
+    }
+
+    private void setFloatingControlEnabled(@Nullable TextView button, boolean enabled) {
+        if (button == null) {
+            return;
+        }
+        button.setEnabled(enabled);
+        button.setAlpha(enabled ? 1f : 0.42f);
     }
 
     private WindowManager.LayoutParams buildFloatingWindowLayoutParams() {
@@ -3163,6 +3379,35 @@ public class RouteRunActivity extends BaseActivity {
         params.x = Math.max(0, getResources().getDisplayMetrics().widthPixels - width - Math.round(dp(12f)));
         params.y = Math.round(dp(112f));
         return params;
+    }
+
+    private void refreshFloatingWindowSizeFromPrefs() {
+        applyFloatingWindowButtonSize();
+        if (floatingWindowLayoutParams == null) {
+            return;
+        }
+        updateFloatingWindowLayoutForScale(prefsStore.getRouteFloatingWindowScale(), false);
+    }
+
+    private void updateFloatingWindowLayoutForScale(float scale, boolean updateWindow) {
+        if (floatingWindowLayoutParams == null) {
+            return;
+        }
+        float clampedScale = Math.max(0.35f, Math.min(0.90f, scale));
+        int displayWidth = getResources().getDisplayMetrics().widthPixels;
+        int width = Math.round(displayWidth * clampedScale);
+        int height = Math.max(Math.round(width * 0.72f), Math.round(dp(180f)));
+        floatingWindowLayoutParams.width = width;
+        floatingWindowLayoutParams.height = height;
+        floatingWindowLayoutParams.x = Math.max(0, Math.min(floatingWindowLayoutParams.x, displayWidth - width));
+        applyFloatingWindowButtonSize();
+        if (updateWindow && floatingWindowRoot != null && floatingWindowRoot.getParent() != null && floatingWindowManager != null) {
+            try {
+                floatingWindowManager.updateViewLayout(floatingWindowRoot, floatingWindowLayoutParams);
+            } catch (Exception exception) {
+                XLog.e("RouteRunActivity: failed to resize floating window: " + exception.getMessage());
+            }
+        }
     }
 
     private void updateFloatingWindowRoute(@Nullable RouteDefinition routeDefinition) {
@@ -3253,6 +3498,38 @@ public class RouteRunActivity extends BaseActivity {
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private boolean handleFloatingWindowResize(View view, MotionEvent event) {
+        if (event == null || floatingWindowRoot == null || floatingWindowLayoutParams == null || floatingWindowManager == null) {
+            return false;
+        }
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                floatingWindowResizeStartRawX = event.getRawX();
+                floatingWindowResizeStartRawY = event.getRawY();
+                floatingWindowResizeStartScale = floatingWindowLayoutParams.width
+                        / (float) Math.max(1, getResources().getDisplayMetrics().widthPixels);
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                float deltaX = event.getRawX() - floatingWindowResizeStartRawX;
+                float deltaY = event.getRawY() - floatingWindowResizeStartRawY;
+                float scaleDelta = ((-deltaX) + deltaY) / Math.max(1f, getResources().getDisplayMetrics().widthPixels);
+                updateFloatingWindowLayoutForScale(floatingWindowResizeStartScale + scaleDelta, true);
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                float currentScale = floatingWindowLayoutParams.width
+                        / (float) Math.max(1, getResources().getDisplayMetrics().widthPixels);
+                prefsStore.saveRouteFloatingWindowSettings(
+                        prefsStore.isRouteFloatingWindowEnabled(),
+                        currentScale,
+                        prefsStore.getRouteFloatingWindowButtonSizeDp()
+                );
                 return true;
             default:
                 return false;

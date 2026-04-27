@@ -62,4 +62,25 @@ public class RouteEditUtilsTest {
         assertEquals(0.0006d, result.get(1).getBdLongitude(), 0.0000001d);
         assertEquals(0.0d, result.get(1).getBdLatitude(), 0.0000001d);
     }
+
+    @Test
+    public void removeEvenlySpacedNonKeyPoints_keepsTurnsAndEndpoints() {
+        List<RoutePoint> points = Arrays.asList(
+                new RoutePoint(0.0d, 0.0d, 0.0d, 0.0d, 0.0d),
+                new RoutePoint(0.0005d, 0.0d, 0.0005d, 0.0d, 0.0d),
+                new RoutePoint(0.001d, 0.0d, 0.001d, 0.0d, 0.0d),
+                new RoutePoint(0.001d, 0.0005d, 0.001d, 0.0005d, 0.0d),
+                new RoutePoint(0.001d, 0.001d, 0.001d, 0.001d, 0.0d)
+        );
+
+        List<RoutePoint> result = RouteEditUtils.removeEvenlySpacedNonKeyPoints(points, 2);
+
+        assertEquals(3, RouteEditUtils.countKeyRoutePoints(points));
+        assertEquals(2, RouteEditUtils.countRemovableRoutePoints(points));
+        assertEquals(3, result.size());
+        assertEquals(0.0d, result.get(0).getBdLongitude(), 0.0000001d);
+        assertEquals(0.001d, result.get(1).getBdLongitude(), 0.0000001d);
+        assertEquals(0.0d, result.get(1).getBdLatitude(), 0.0000001d);
+        assertEquals(0.001d, result.get(2).getBdLatitude(), 0.0000001d);
+    }
 }

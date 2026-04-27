@@ -352,5 +352,9 @@
     <string name="route_floating_window_permission_required">请先授予悬浮窗权限。</string>
     <string name="route_floating_window_scale_default">悬浮窗大小：58%</string>
     <string name="route_floating_window_scale_format">悬浮窗大小：%1$d%%</string>
+    <string name="route_floating_window_button_size_default">按钮大小：44dp</string>
+    <string name="route_floating_window_button_size_format">按钮大小：%1$ddp</string>
+    <string name="route_floating_window_pause">暂停</string>
+    <string name="route_floating_window_resume">继续</string>
     <string name="route_floating_window_title">路线模拟中</string>
 </resources>

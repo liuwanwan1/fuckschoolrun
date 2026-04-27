@@ -10,6 +10,7 @@ import java.util.List;
 
 public final class RouteEditUtils {
     private static final double EARTH_RADIUS_METERS = 6371000d;
+    private static final double KEY_POINT_MAX_STRAIGHT_ANGLE_DEGREES = 170d;
 
     private RouteEditUtils() {
     }
@@ -58,6 +59,70 @@ public final class RouteEditUtils {
         List<RoutePoint> result = new ArrayList<>(placements.size());
         for (PointPlacement placement : placements) {
             result.add(placement.routePoint);
+        }
+        return result;
+    }
+
+    public static int countKeyRoutePoints(@NonNull List<RoutePoint> routePoints) {
+        List<RoutePoint> sourcePoints = routePoints == null ? new ArrayList<>() : routePoints;
+        int keyPointCount = 0;
+        for (int index = 0; index < sourcePoints.size(); index++) {
+            if (isKeyRoutePoint(sourcePoints, index)) {
+                keyPointCount++;
+            }
+        }
+        return keyPointCount;
+    }
+
+    public static int countRemovableRoutePoints(@NonNull List<RoutePoint> routePoints) {
+        List<RoutePoint> sourcePoints = routePoints == null ? new ArrayList<>() : routePoints;
+        return Math.max(0, sourcePoints.size() - countKeyRoutePoints(sourcePoints));
+    }
+
+    @NonNull
+    public static List<RoutePoint> removeEvenlySpacedNonKeyPoints(
+            @NonNull List<RoutePoint> routePoints,
+            int removePointCount
+    ) {
+        List<RoutePoint> sourcePoints = routePoints == null ? new ArrayList<>() : new ArrayList<>(routePoints);
+        if (sourcePoints.size() < 3 || removePointCount <= 0) {
+            return sourcePoints;
+        }
+
+        List<Integer> removableIndices = new ArrayList<>();
+        for (int index = 0; index < sourcePoints.size(); index++) {
+            if (!isKeyRoutePoint(sourcePoints, index)) {
+                removableIndices.add(index);
+            }
+        }
+        if (removableIndices.isEmpty()) {
+            return sourcePoints;
+        }
+
+        boolean[] shouldRemove = new boolean[sourcePoints.size()];
+        int clampedRemoveCount = Math.min(removePointCount, removableIndices.size());
+        if (clampedRemoveCount == removableIndices.size()) {
+            for (int index : removableIndices) {
+                shouldRemove[index] = true;
+            }
+        } else {
+            int previousPosition = -1;
+            for (int removalIndex = 1; removalIndex <= clampedRemoveCount; removalIndex++) {
+                int removablePosition = (int) Math.floor(
+                        removalIndex * ((removableIndices.size() + 1d) / (clampedRemoveCount + 1d))
+                ) - 1;
+                removablePosition = Math.max(previousPosition + 1,
+                        Math.min(removableIndices.size() - 1, removablePosition));
+                shouldRemove[removableIndices.get(removablePosition)] = true;
+                previousPosition = removablePosition;
+            }
+        }
+
+        List<RoutePoint> result = new ArrayList<>(sourcePoints.size() - clampedRemoveCount);
+        for (int index = 0; index < sourcePoints.size(); index++) {
+            if (!shouldRemove[index]) {
+                result.add(sourcePoints.get(index));
+            }
         }
         return result;
     }
@@ -170,6 +235,21 @@ public final class RouteEditUtils {
             cumulativeDistances.add(totalDistance);
         }
         return cumulativeDistances;
+    }
+
+    private static boolean isKeyRoutePoint(List<RoutePoint> routePoints, int index) {
+        if (routePoints == null || routePoints.isEmpty()) {
+            return false;
+        }
+        if (index <= 0 || index >= routePoints.size() - 1) {
+            return index >= 0 && index < routePoints.size();
+        }
+        double angleDegrees = estimateAngleDegrees(
+                routePoints.get(index - 1),
+                routePoints.get(index),
+                routePoints.get(index + 1)
+        );
+        return angleDegrees < KEY_POINT_MAX_STRAIGHT_ANGLE_DEGREES;
     }
 
     private static double estimateAngleDegrees(RoutePoint previous, RoutePoint current, RoutePoint next) {
