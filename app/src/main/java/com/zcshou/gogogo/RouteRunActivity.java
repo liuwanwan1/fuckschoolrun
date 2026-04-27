@@ -977,7 +977,13 @@ public class RouteRunActivity extends BaseActivity {
         liveRouteEditEnabled = enabled;
         clearLiveRouteEditState(true);
         if (routeDefinition != null) {
-            drawRoute(routeDefinition, false);
+            if (enabled && canEditSelectedRouteLive(routeDefinition)) {
+                liveRouteEditVerticesVisible = true;
+                editableRoutePointIndices.addAll(resolveEditableRoutePointIndices(routeDefinition.getPoints()));
+                drawRoute(routeDefinition, true);
+            } else {
+                drawRoute(routeDefinition, false);
+            }
         }
         updateLiveRouteEditHint();
     }
@@ -1003,6 +1009,11 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (liveRouteEditEnabled && !canEditSelectedRouteLive(routeDefinition)) {
             clearLiveRouteEditState(true);
+        } else if (liveRouteEditEnabled && !liveRouteEditVerticesVisible) {
+            liveRouteEditVerticesVisible = true;
+            selectedEditableRoutePointIndex = -1;
+            editableRoutePointIndices.clear();
+            editableRoutePointIndices.addAll(resolveEditableRoutePointIndices(routeDefinition.getPoints()));
         }
     }
 
@@ -1168,23 +1179,32 @@ public class RouteRunActivity extends BaseActivity {
         if (currentPoints.size() < 2) {
             return;
         }
-        RouteEditUtils.ProjectionResult projectionResult = RouteEditUtils.projectPointOntoRoute(
-                currentPoints,
-                buildMovedRoutePoint(currentPoints.get(0), latLng)
-        );
-        boolean screenTapOnRoute = screenPoint != null && isScreenPointNearRoute(screenPoint, currentPoints);
-        if (!projectionResult.isValid()
-                || (!screenTapOnRoute
-                && projectionResult.getDistanceToRouteMeters() > ROUTE_INSERT_MAX_DISTANCE_METERS)) {
-            return;
+        List<RoutePoint> updatedPoints;
+        int insertIndex;
+        ScreenRouteProjection screenProjection = screenPoint == null
+                ? null
+                : projectScreenPointOntoRoute(screenPoint, currentPoints);
+        if (screenProjection != null && screenProjection.distanceToRoutePixels <= routeEditRouteHitSlopPx) {
+            insertIndex = screenProjection.segmentStartIndex + 1;
+            updatedPoints = new ArrayList<>(currentPoints);
+            updatedPoints.add(insertIndex, screenProjection.projectedPoint);
+        } else {
+            RouteEditUtils.ProjectionResult projectionResult = RouteEditUtils.projectPointOntoRoute(
+                    currentPoints,
+                    buildMovedRoutePoint(currentPoints.get(0), latLng)
+            );
+            if (!projectionResult.isValid()
+                    || projectionResult.getDistanceToRouteMeters() > ROUTE_INSERT_MAX_DISTANCE_METERS) {
+                return;
+            }
+            updatedPoints = RouteEditUtils.insertPointOnRoute(currentPoints, projectionResult);
+            insertIndex = projectionResult.getSegmentStartIndex() + 1;
         }
-        List<RoutePoint> updatedPoints = RouteEditUtils.insertPointOnRoute(currentPoints, projectionResult);
-        int insertIndex = projectionResult.getSegmentStartIndex() + 1;
         if (editableRoutePointIndices.isEmpty()) {
             editableRoutePointIndices.addAll(resolveEditableRoutePointIndices(currentPoints));
         }
-        selectedEditableRoutePointIndex = insertIndex;
         shiftEditableRoutePointIndicesForInsert(insertIndex, updatedPoints.size());
+        selectedEditableRoutePointIndex = -1;
         RouteDefinition updatedRoute = new RouteDefinition(
                 routeDefinition.getId(),
                 routeDefinition.getName(),
@@ -1217,10 +1237,15 @@ public class RouteRunActivity extends BaseActivity {
         editableRoutePointIndices.addAll(shiftedIndices);
     }
 
-    private boolean isScreenPointNearRoute(@NonNull Point screenPoint, @NonNull List<RoutePoint> routePoints) {
+    @Nullable
+    private ScreenRouteProjection projectScreenPointOntoRoute(
+            @NonNull Point screenPoint,
+            @NonNull List<RoutePoint> routePoints
+    ) {
         if (baiduMap == null || routePoints.size() < 2) {
-            return false;
+            return null;
         }
+        ScreenRouteProjection bestProjection = null;
         for (int index = 0; index < routePoints.size() - 1; index++) {
             RoutePoint startPoint = routePoints.get(index);
             RoutePoint endPoint = routePoints.get(index + 1);
@@ -1233,25 +1258,60 @@ public class RouteRunActivity extends BaseActivity {
             if (startScreenPoint == null || endScreenPoint == null) {
                 continue;
             }
-            if (distanceToSegmentPixels(screenPoint, startScreenPoint, endScreenPoint) <= routeEditRouteHitSlopPx) {
-                return true;
+            SegmentProjection segmentProjection = projectPointOntoScreenSegment(
+                    screenPoint,
+                    startScreenPoint,
+                    endScreenPoint
+            );
+            if (bestProjection == null
+                    || segmentProjection.distancePixels < bestProjection.distanceToRoutePixels) {
+                bestProjection = new ScreenRouteProjection(
+                        index,
+                        interpolateRoutePoint(startPoint, endPoint, segmentProjection.segmentRatio),
+                        segmentProjection.distancePixels
+                );
             }
         }
-        return false;
+        return bestProjection;
     }
 
-    private double distanceToSegmentPixels(@NonNull Point target, @NonNull Point start, @NonNull Point end) {
+    @NonNull
+    private SegmentProjection projectPointOntoScreenSegment(
+            @NonNull Point target,
+            @NonNull Point start,
+            @NonNull Point end
+    ) {
         double segmentX = end.x - start.x;
         double segmentY = end.y - start.y;
         double segmentLengthSquared = (segmentX * segmentX) + (segmentY * segmentY);
         if (segmentLengthSquared <= 0.000001d) {
-            return Math.hypot(target.x - start.x, target.y - start.y);
+            return new SegmentProjection(0d, Math.hypot(target.x - start.x, target.y - start.y));
         }
         double ratio = ((target.x - start.x) * segmentX + (target.y - start.y) * segmentY) / segmentLengthSquared;
         double clampedRatio = Math.max(0d, Math.min(1d, ratio));
         double projectedX = start.x + (segmentX * clampedRatio);
         double projectedY = start.y + (segmentY * clampedRatio);
-        return Math.hypot(target.x - projectedX, target.y - projectedY);
+        return new SegmentProjection(clampedRatio, Math.hypot(target.x - projectedX, target.y - projectedY));
+    }
+
+    @NonNull
+    private RoutePoint interpolateRoutePoint(
+            @NonNull RoutePoint startPoint,
+            @NonNull RoutePoint endPoint,
+            double ratio
+    ) {
+        double clampedRatio = Math.max(0d, Math.min(1d, ratio));
+        return new RoutePoint(
+                lerp(startPoint.getBdLongitude(), endPoint.getBdLongitude(), clampedRatio),
+                lerp(startPoint.getBdLatitude(), endPoint.getBdLatitude(), clampedRatio),
+                lerp(startPoint.getWgsLongitude(), endPoint.getWgsLongitude(), clampedRatio),
+                lerp(startPoint.getWgsLatitude(), endPoint.getWgsLatitude(), clampedRatio),
+                lerp(startPoint.getAltitude(), endPoint.getAltitude(), clampedRatio)
+        );
+    }
+
+    private double lerp(double start, double end, double ratio) {
+        return start + ((end - start) * ratio);
     }
 
     private void moveSelectedEditableVertexTo(@NonNull LatLng latLng) {
@@ -3355,6 +3415,32 @@ public class RouteRunActivity extends BaseActivity {
             this.altitude = altitude;
             this.speed = speed;
             this.bearing = bearing;
+        }
+    }
+
+    private static final class ScreenRouteProjection {
+        private final int segmentStartIndex;
+        private final RoutePoint projectedPoint;
+        private final double distanceToRoutePixels;
+
+        private ScreenRouteProjection(
+                int segmentStartIndex,
+                @NonNull RoutePoint projectedPoint,
+                double distanceToRoutePixels
+        ) {
+            this.segmentStartIndex = segmentStartIndex;
+            this.projectedPoint = projectedPoint;
+            this.distanceToRoutePixels = distanceToRoutePixels;
+        }
+    }
+
+    private static final class SegmentProjection {
+        private final double segmentRatio;
+        private final double distancePixels;
+
+        private SegmentProjection(double segmentRatio, double distancePixels) {
+            this.segmentRatio = segmentRatio;
+            this.distancePixels = distancePixels;
         }
     }
 
