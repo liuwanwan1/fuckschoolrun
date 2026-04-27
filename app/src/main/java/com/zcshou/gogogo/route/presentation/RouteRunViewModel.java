@@ -3,6 +3,7 @@ package com.acooldog.toolbox.route.presentation;
 import android.app.Application;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.lifecycle.AndroidViewModel;
@@ -20,43 +21,32 @@ import com.acooldog.toolbox.route.domain.service.RouteSimulationEngine;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 public final class RouteRunViewModel extends AndroidViewModel {
     private final MutableLiveData<List<RouteDefinition>> routes;
     private final MutableLiveData<RouteDefinition> selectedRoute;
     private final MutableLiveData<SimulationFrame> simulationFrame;
+    private final MutableLiveData<Long> simulationCompletedEvent;
+    private final MutableLiveData<Boolean> resumable;
     private final MutableLiveData<Boolean> running;
     private final Handler handler;
-    private final Random random;
     private final RouteModule routeModule;
     private RouteSimulationEngine simulationEngine;
     private LocationSimulationGateway locationSimulationGateway;
     private RouteSimulationConfig simulationConfig;
+    private String activeRouteId;
 
     private final Runnable simulationRunnable = new Runnable() {
         @Override
         public void run() {
-            if (simulationEngine == null || simulationConfig == null || locationSimulationGateway == null) {
-                stopSimulation();
+            if (!canSimulate()) {
+                running.setValue(false);
+                updateSimulationAvailability();
                 return;
             }
 
-            double speedMultiplier = simulationConfig.isSpeedFloating()
-                    ? 0.85d + (random.nextDouble() * 0.30d)
-                    : 1.0d;
-            SimulationFrame nextFrame = simulationEngine.next(speedMultiplier);
-            simulationFrame.setValue(nextFrame);
-            locationSimulationGateway.pushLocation(
-                    nextFrame.getPoint().getWgsLongitude(),
-                    nextFrame.getPoint().getWgsLatitude(),
-                    nextFrame.getPoint().getAltitude(),
-                    nextFrame.getSpeedMetersPerSecond(),
-                    nextFrame.getBearing()
-            );
-
-            if (nextFrame.isFinished()) {
-                stopSimulation();
+            SimulationFrame frame = advanceSimulationOnceAndGetFrame();
+            if (frame == null || frame.isFinished() || simulationConfig == null || !Boolean.TRUE.equals(running.getValue())) {
                 return;
             }
             handler.postDelayed(this, simulationConfig.getTickMillis());
@@ -68,9 +58,10 @@ public final class RouteRunViewModel extends AndroidViewModel {
         routes = new MutableLiveData<>(new ArrayList<>());
         selectedRoute = new MutableLiveData<>();
         simulationFrame = new MutableLiveData<>();
+        simulationCompletedEvent = new MutableLiveData<>();
+        resumable = new MutableLiveData<>(false);
         running = new MutableLiveData<>(false);
         handler = new Handler(Looper.getMainLooper());
-        random = new Random();
         routeModule = RouteModule.from(application);
     }
 
@@ -86,6 +77,14 @@ public final class RouteRunViewModel extends AndroidViewModel {
         return simulationFrame;
     }
 
+    public LiveData<Long> getSimulationCompletedEvent() {
+        return simulationCompletedEvent;
+    }
+
+    public LiveData<Boolean> isResumable() {
+        return resumable;
+    }
+
     public LiveData<Boolean> isRunning() {
         return running;
     }
@@ -96,12 +95,15 @@ public final class RouteRunViewModel extends AndroidViewModel {
 
     public void selectRoute(RouteDefinition routeDefinition) {
         selectedRoute.setValue(routeDefinition);
+        updateRouteInCollection(routeDefinition);
+        updateSimulationAvailability();
     }
 
     public void selectRouteById(String routeId) throws IOException {
         for (RouteDefinition routeDefinition : routeModule.getRoutesUseCase().execute()) {
             if (routeDefinition.getId().equals(routeId)) {
                 selectedRoute.setValue(routeDefinition);
+                updateSimulationAvailability();
                 break;
             }
         }
@@ -115,29 +117,176 @@ public final class RouteRunViewModel extends AndroidViewModel {
     }
 
     public void startSimulation(RouteSimulationConfig config, LocationSimulationGateway gateway) {
-        RouteDefinition routeDefinition = selectedRoute.getValue();
-        if (routeDefinition == null) {
-            throw new IllegalStateException("No route selected");
-        }
-        simulationConfig = config;
-        locationSimulationGateway = gateway;
-        simulationEngine = routeModule.createRouteSimulationEngineUseCase().execute(routeDefinition, config);
-        running.setValue(true);
+        prepareSimulation(config, gateway);
         handler.removeCallbacks(simulationRunnable);
         simulationRunnable.run();
+    }
+
+    public void startLinkedSimulation(RouteSimulationConfig config, LocationSimulationGateway gateway) {
+        prepareSimulation(config, gateway);
+        handler.removeCallbacks(simulationRunnable);
+    }
+
+    public SimulationFrame advanceSimulationOnceAndGetFrame() {
+        if (!canSimulate()) {
+            running.setValue(false);
+            updateSimulationAvailability();
+            return null;
+        }
+        if (simulationEngine == null || simulationConfig == null) {
+            stopSimulation();
+            return null;
+        }
+        SimulationFrame nextFrame = simulationEngine.next();
+        simulationFrame.setValue(nextFrame);
+        locationSimulationGateway.pushLocation(
+                nextFrame.getPoint().getWgsLongitude(),
+                nextFrame.getPoint().getWgsLatitude(),
+                nextFrame.getPoint().getAltitude(),
+                nextFrame.getSpeedMetersPerSecond(),
+                nextFrame.getBearing()
+        );
+        if (nextFrame.isFinished()) {
+            simulationCompletedEvent.setValue(SystemClock.elapsedRealtime());
+            stopSimulation();
+            return nextFrame;
+        }
+        return nextFrame;
+    }
+
+    public boolean advanceSimulationOnce() {
+        return advanceSimulationOnceAndGetFrame() != null;
+    }
+
+    public void pauseSimulation() {
+        handler.removeCallbacks(simulationRunnable);
+        locationSimulationGateway = null;
+        running.setValue(false);
+        updateSimulationAvailability();
+    }
+
+    public void updateSimulationConfig(RouteSimulationConfig config) {
+        if (config == null || simulationEngine == null) {
+            return;
+        }
+        simulationConfig = config;
+        simulationEngine.updateConfig(config);
+        if (simulationEngine.isFinished()) {
+            simulationCompletedEvent.setValue(SystemClock.elapsedRealtime());
+            stopSimulation();
+            return;
+        }
+        if (Boolean.TRUE.equals(running.getValue())) {
+            handler.removeCallbacks(simulationRunnable);
+            handler.postDelayed(simulationRunnable, simulationConfig.getTickMillis());
+        }
+        updateSimulationAvailability();
+    }
+
+    public void replaceSelectedRoute(RouteDefinition routeDefinition) {
+        if (routeDefinition == null) {
+            return;
+        }
+        selectedRoute.setValue(routeDefinition);
+        updateRouteInCollection(routeDefinition);
+        if (simulationEngine != null
+                && activeRouteId != null
+                && activeRouteId.equals(routeDefinition.getId())) {
+            simulationEngine.updateRoute(routeDefinition);
+        }
+        updateSimulationAvailability();
+    }
+
+    public RouteDefinition persistRouteEdits(RouteDefinition routeDefinition) throws IOException {
+        return routeModule.updateRouteUseCase().execute(
+                routeDefinition.getId(),
+                routeDefinition.getName(),
+                routeDefinition.getPoints(),
+                routeDefinition.getShareInfo()
+        );
+    }
+
+    public boolean hasActiveSimulation() {
+        return simulationEngine != null && !simulationEngine.isFinished();
+    }
+
+    public boolean hasResumableSimulationForSelectedRoute() {
+        return hasActiveSimulation()
+                && !Boolean.TRUE.equals(running.getValue())
+                && isSelectedRouteActive();
     }
 
     public void stopSimulation() {
         handler.removeCallbacks(simulationRunnable);
         simulationEngine = null;
+        activeRouteId = null;
         locationSimulationGateway = null;
         simulationConfig = null;
         running.setValue(false);
+        updateSimulationAvailability();
     }
 
     @Override
     protected void onCleared() {
         stopSimulation();
         super.onCleared();
+    }
+
+    private boolean canSimulate() {
+        return simulationEngine != null && simulationConfig != null && locationSimulationGateway != null;
+    }
+
+    private void prepareSimulation(RouteSimulationConfig config, LocationSimulationGateway gateway) {
+        RouteDefinition routeDefinition = selectedRoute.getValue();
+        if (routeDefinition == null) {
+            throw new IllegalStateException("No route selected");
+        }
+        simulationConfig = config;
+        locationSimulationGateway = gateway;
+        if (simulationEngine != null
+                && !simulationEngine.isFinished()
+                && routeDefinition.getId().equals(activeRouteId)) {
+            simulationEngine.updateConfig(config);
+        } else {
+            simulationEngine = routeModule.createRouteSimulationEngineUseCase().execute(routeDefinition, config);
+            activeRouteId = routeDefinition.getId();
+        }
+        running.setValue(true);
+        updateSimulationAvailability();
+    }
+
+    private boolean isSelectedRouteActive() {
+        RouteDefinition routeDefinition = selectedRoute.getValue();
+        return routeDefinition != null
+                && activeRouteId != null
+                && activeRouteId.equals(routeDefinition.getId());
+    }
+
+    private void updateSimulationAvailability() {
+        resumable.setValue(
+                simulationEngine != null
+                        && !simulationEngine.isFinished()
+                        && !Boolean.TRUE.equals(running.getValue())
+                        && isSelectedRouteActive()
+        );
+    }
+
+    private void updateRouteInCollection(RouteDefinition routeDefinition) {
+        if (routeDefinition == null) {
+            return;
+        }
+        List<RouteDefinition> currentRoutes = routes.getValue();
+        if (currentRoutes == null || currentRoutes.isEmpty()) {
+            return;
+        }
+        List<RouteDefinition> updatedRoutes = new ArrayList<>(currentRoutes);
+        for (int index = 0; index < updatedRoutes.size(); index++) {
+            RouteDefinition existing = updatedRoutes.get(index);
+            if (existing != null && routeDefinition.getId().equals(existing.getId())) {
+                updatedRoutes.set(index, routeDefinition);
+                routes.setValue(updatedRoutes);
+                return;
+            }
+        }
     }
 }

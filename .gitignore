@@ -67,3 +67,10 @@ backend/**/*.pyc
 
 /docs/map-config.md
 /docs/shared-backend-api.md
+
+# Demo lab sources are tracked, generated outputs stay ignored
+/demo/*
+
+/logs
+/.skills
+/.vscode

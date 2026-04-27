@@ -20,6 +20,21 @@ public final class SimulationPrefsStore {
     private static final String KEY_ROUTE_LOOP_COUNT = "route_loop_count";
     private static final String KEY_ROUTE_SPEED_FLOAT = "route_speed_float";
     private static final String KEY_ROUTE_LAST_ID = "route_last_id";
+    private static final String KEY_ROUTE_LINK_RATIO_NUMERATOR = "route_link_ratio_numerator";
+    private static final String KEY_ROUTE_STEPS_PER_METER = "route_steps_per_meter";
+    private static final String KEY_ROUTE_REMINDER_TONE_URI = "route_reminder_tone_uri";
+    private static final String KEY_ROUTE_REMINDER_TONE_TITLE = "route_reminder_tone_title";
+    private static final String KEY_ROUTE_INTENSITY_RANGE = "route_intensity_range";
+    private static final String KEY_ROUTE_INTENSITY_FREQUENCY = "route_intensity_frequency";
+    private static final String KEY_ROUTE_PATH_VARIATION_ENABLED = "route_path_variation_enabled";
+    private static final String KEY_ROUTE_PATH_VARIATION_AMPLITUDE = "route_path_variation_amplitude";
+    private static final String KEY_ROUTE_ALTITUDE_VARIATION_ENABLED = "route_altitude_variation_enabled";
+    private static final String KEY_ROUTE_ALTITUDE_VARIATION_RANGE = "route_altitude_variation_range";
+    private static final String KEY_ROUTE_ALTITUDE_VARIATION_HEIGHT_CM = "route_altitude_variation_height_cm";
+    private static final String KEY_ROUTE_ALTITUDE_VARIATION_PROBABILITY = "route_altitude_variation_probability";
+    private static final String KEY_ROUTE_COMPLETION_PENDING = "route_completion_pending";
+    private static final String KEY_ROUTE_FLOATING_WINDOW_ENABLED = "route_floating_window_enabled";
+    private static final String KEY_ROUTE_FLOATING_WINDOW_SCALE = "route_floating_window_scale";
     private static final String KEY_NFC_URL = "nfc_url";
     private static final String KEY_NFC_PACKAGE = "nfc_package";
     private static final String KEY_NFC_SOURCE = "nfc_source";
@@ -60,11 +75,79 @@ public final class SimulationPrefsStore {
         return preferences.getBoolean(KEY_ROUTE_SPEED_FLOAT, true);
     }
 
+    public String getRouteIntensityVariationRange() {
+        return preferences.getString(KEY_ROUTE_INTENSITY_RANGE, "2.0");
+    }
+
+    public float getRouteIntensityVariationFrequency() {
+        return clampFrequency(preferences.getFloat(KEY_ROUTE_INTENSITY_FREQUENCY, 0.35f));
+    }
+
+    public boolean isRouteNaturalPathVariationEnabled() {
+        return preferences.getBoolean(KEY_ROUTE_PATH_VARIATION_ENABLED, false);
+    }
+
+    public String getRoutePathVariationAmplitude() {
+        return preferences.getString(KEY_ROUTE_PATH_VARIATION_AMPLITUDE, "1.0");
+    }
+
+    public boolean isRouteNaturalAltitudeVariationEnabled() {
+        return preferences.getBoolean(KEY_ROUTE_ALTITUDE_VARIATION_ENABLED, false);
+    }
+
+    public String getRouteAltitudeVariationRange() {
+        return preferences.getString(KEY_ROUTE_ALTITUDE_VARIATION_RANGE, "0.6");
+    }
+
+    public String getRouteAltitudeVariationHeightCm() {
+        return preferences.getString(KEY_ROUTE_ALTITUDE_VARIATION_HEIGHT_CM, "170");
+    }
+
+    public float getRouteAltitudeVariationProbability() {
+        return clampFrequency(preferences.getFloat(KEY_ROUTE_ALTITUDE_VARIATION_PROBABILITY, 0.35f));
+    }
+
+    public String getRouteLinkRatioNumerator() {
+        return preferences.getString(KEY_ROUTE_LINK_RATIO_NUMERATOR, "1");
+    }
+
+    public String getRouteReminderToneUri() {
+        return preferences.getString(KEY_ROUTE_REMINDER_TONE_URI, "");
+    }
+
+    public String getRouteReminderToneTitle() {
+        return preferences.getString(KEY_ROUTE_REMINDER_TONE_TITLE, "");
+    }
+
+    public String getRouteStepsPerMeter() {
+        return preferences.getString(KEY_ROUTE_STEPS_PER_METER, "1");
+    }
+
     public String getLastRouteId() {
         return preferences.getString(KEY_ROUTE_LAST_ID, "");
     }
 
-    public void saveRouteConfig(String routeMode, String speed, String cadence, String loopCount, boolean speedFloat, String routeId) {
+    public boolean isRouteCompletionPending() {
+        return preferences.getBoolean(KEY_ROUTE_COMPLETION_PENDING, false);
+    }
+
+    public boolean isRouteFloatingWindowEnabled() {
+        return preferences.getBoolean(KEY_ROUTE_FLOATING_WINDOW_ENABLED, false);
+    }
+
+    public float getRouteFloatingWindowScale() {
+        return clampFloatingScale(preferences.getFloat(KEY_ROUTE_FLOATING_WINDOW_SCALE, 0.58f));
+    }
+
+    public void saveRouteConfig(
+            String routeMode,
+            String speed,
+            String cadence,
+            String loopCount,
+            boolean speedFloat,
+            String routeId,
+            String linkRatioNumerator
+    ) {
         preferences.edit()
                 .putString(KEY_ROUTE_MODE, normalizeRouteMode(routeMode))
                 .putString(KEY_ROUTE_SPEED, normalize(speed, "15"))
@@ -72,6 +155,61 @@ public final class SimulationPrefsStore {
                 .putString(KEY_ROUTE_LOOP_COUNT, normalize(loopCount, "100"))
                 .putBoolean(KEY_ROUTE_SPEED_FLOAT, speedFloat)
                 .putString(KEY_ROUTE_LAST_ID, normalize(routeId, ""))
+                .putString(KEY_ROUTE_LINK_RATIO_NUMERATOR, normalize(linkRatioNumerator, "1"))
+                .apply();
+    }
+
+    public void saveRouteReminderTone(String uri, String title) {
+        preferences.edit()
+                .putString(KEY_ROUTE_REMINDER_TONE_URI, normalize(uri, ""))
+                .putString(KEY_ROUTE_REMINDER_TONE_TITLE, normalize(title, ""))
+                .apply();
+    }
+
+    public void saveRouteIntensityVariationSettings(String intensityRange, float intensityFrequency) {
+        preferences.edit()
+                .putString(KEY_ROUTE_INTENSITY_RANGE, normalize(intensityRange, "2.0"))
+                .putFloat(KEY_ROUTE_INTENSITY_FREQUENCY, clampFrequency(intensityFrequency))
+                .apply();
+    }
+
+    public void saveRoutePathVariationSettings(boolean enabled, String amplitude) {
+        preferences.edit()
+                .putBoolean(KEY_ROUTE_PATH_VARIATION_ENABLED, enabled)
+                .putString(KEY_ROUTE_PATH_VARIATION_AMPLITUDE, normalize(amplitude, "1.0"))
+                .apply();
+    }
+
+    public void saveRouteAltitudeVariationSettings(
+            boolean enabled,
+            String range,
+            String heightCm,
+            float probability
+    ) {
+        preferences.edit()
+                .putBoolean(KEY_ROUTE_ALTITUDE_VARIATION_ENABLED, enabled)
+                .putString(KEY_ROUTE_ALTITUDE_VARIATION_RANGE, normalize(range, "0.6"))
+                .putString(KEY_ROUTE_ALTITUDE_VARIATION_HEIGHT_CM, normalize(heightCm, "170"))
+                .putFloat(KEY_ROUTE_ALTITUDE_VARIATION_PROBABILITY, clampFrequency(probability))
+                .apply();
+    }
+
+    public void saveRouteStepsPerMeter(String stepsPerMeter) {
+        preferences.edit()
+                .putString(KEY_ROUTE_STEPS_PER_METER, normalize(stepsPerMeter, "1"))
+                .apply();
+    }
+
+    public void setRouteCompletionPending(boolean pending) {
+        preferences.edit()
+                .putBoolean(KEY_ROUTE_COMPLETION_PENDING, pending)
+                .apply();
+    }
+
+    public void saveRouteFloatingWindowSettings(boolean enabled, float scale) {
+        preferences.edit()
+                .putBoolean(KEY_ROUTE_FLOATING_WINDOW_ENABLED, enabled)
+                .putFloat(KEY_ROUTE_FLOATING_WINDOW_SCALE, clampFloatingScale(scale))
                 .apply();
     }
 
@@ -168,6 +306,14 @@ public final class SimulationPrefsStore {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? fallback : trimmed;
+    }
+
+    private float clampFrequency(float value) {
+        return Math.max(0f, Math.min(1f, value));
+    }
+
+    private float clampFloatingScale(float value) {
+        return Math.max(0.35f, Math.min(0.90f, value));
     }
 
     private String normalizeRouteMode(String routeMode) {

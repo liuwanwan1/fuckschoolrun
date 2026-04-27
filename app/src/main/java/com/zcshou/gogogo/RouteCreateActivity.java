@@ -31,6 +31,7 @@ import androidx.lifecycle.ViewModelProvider;
 import com.acooldog.toolbox.route.domain.model.RouteDefinition;
 import com.acooldog.toolbox.route.domain.model.RoutePoint;
 import com.acooldog.toolbox.route.domain.model.RouteShareInfo;
+import com.acooldog.toolbox.route.domain.service.RouteEditUtils;
 import com.acooldog.toolbox.route.presentation.RouteCreateViewModel;
 import com.acooldog.toolbox.route.presentation.RouteModule;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
@@ -91,6 +92,7 @@ public class RouteCreateActivity extends BaseActivity {
     private static final int LOCATION_REFRESH_INTERVAL_MS = 1000;
     private static final int TOOL_MODE_DRAW = 0;
     private static final int TOOL_MODE_EDIT = 1;
+    private static final double ROUTE_INSERT_MAX_DISTANCE_METERS = 20d;
 
     private MapView mapView;
     private BaiduMap baiduMap;
@@ -112,6 +114,10 @@ public class RouteCreateActivity extends BaseActivity {
     private Button closeRouteButton;
     private Button drawToolButton;
     private Button editToolButton;
+    private Button autoAddToolButton;
+    private Button smoothCornerToolButton;
+    private Button undoToolButton;
+    private Button redoToolButton;
     private Button keepToolButton;
     private Button deleteToolButton;
     private ImageButton toggleToolButton;
@@ -229,6 +235,16 @@ public class RouteCreateActivity extends BaseActivity {
                     return;
                 }
                 if (toolMode == TOOL_MODE_EDIT) {
+                    if (selectedPointIndex >= 0) {
+                        viewModel.replacePointAt(selectedPointIndex, buildMovedRoutePoint(
+                                viewModel.getCurrentPoints().get(selectedPointIndex),
+                                latLng
+                        ));
+                        return;
+                    }
+                    if (insertRoutePointNearClick(latLng)) {
+                        return;
+                    }
                     selectedPointIndex = -1;
                     closeRoutePromptVisible = false;
                     updateCreateModeUi();
@@ -256,7 +272,8 @@ public class RouteCreateActivity extends BaseActivity {
         }
         String markerType = marker.getExtraInfo().getString(MARKER_TYPE_KEY, MARKER_TYPE_VERTEX);
         if (toolMode == TOOL_MODE_EDIT) {
-            selectedPointIndex = marker.getExtraInfo().getInt(MARKER_INDEX_KEY, -1);
+            int tappedIndex = marker.getExtraInfo().getInt(MARKER_INDEX_KEY, -1);
+            selectedPointIndex = tappedIndex == selectedPointIndex ? -1 : tappedIndex;
             closeRoutePromptVisible = false;
             updateCreateModeUi();
             drawRoute(viewModel.getCurrentPoints());
@@ -284,6 +301,10 @@ public class RouteCreateActivity extends BaseActivity {
         recordModeSwitch = findViewById(R.id.switch_create_record_mode);
         drawToolButton = findViewById(R.id.btn_create_tool_draw);
         editToolButton = findViewById(R.id.btn_create_tool_edit);
+        autoAddToolButton = findViewById(R.id.btn_create_tool_auto_add);
+        smoothCornerToolButton = findViewById(R.id.btn_create_tool_smooth_corner);
+        undoToolButton = findViewById(R.id.btn_create_tool_undo);
+        redoToolButton = findViewById(R.id.btn_create_tool_redo);
         keepToolButton = findViewById(R.id.btn_create_tool_keep);
         deleteToolButton = findViewById(R.id.btn_create_tool_delete);
         toggleToolButton = findViewById(R.id.btn_create_tool_toggle);
@@ -317,6 +338,18 @@ public class RouteCreateActivity extends BaseActivity {
         locationButton.setOnClickListener(v -> moveToCurrentLocation());
         drawToolButton.setOnClickListener(v -> switchToolMode(TOOL_MODE_DRAW));
         editToolButton.setOnClickListener(v -> switchToolMode(TOOL_MODE_EDIT));
+        autoAddToolButton.setOnClickListener(v -> showAutoAddPointsDialog());
+        smoothCornerToolButton.setOnClickListener(v -> showSmoothCornersDialog());
+        undoToolButton.setOnClickListener(v -> {
+            selectedPointIndex = -1;
+            closeRoutePromptVisible = false;
+            viewModel.undo();
+        });
+        redoToolButton.setOnClickListener(v -> {
+            selectedPointIndex = -1;
+            closeRoutePromptVisible = false;
+            viewModel.redo();
+        });
         keepToolButton.setOnClickListener(v -> clearSelectedPoint());
         deleteToolButton.setOnClickListener(v -> deleteSelectedPoint());
         toggleToolButton.setOnClickListener(v -> {
@@ -523,7 +556,7 @@ public class RouteCreateActivity extends BaseActivity {
         editingRouteId = routeDefinition.getId();
         editingRouteName = routeDefinition.getName();
         editingShareInfo = routeDefinition.getShareInfo();
-        viewModel.setPoints(routeDefinition.getPoints());
+        viewModel.loadPoints(routeDefinition.getPoints());
         ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
             actionBar.setTitle(R.string.route_edit_title);
@@ -658,7 +691,7 @@ public class RouteCreateActivity extends BaseActivity {
             return false;
         }
         LatLng latLng = new LatLng(bdLocation.getLatitude(), bdLocation.getLongitude());
-        viewModel.addPoint(buildRoutePoint(latLng, sanitizeAltitude(bdLocation)));
+        viewModel.addPoint(buildRoutePoint(latLng, sanitizeAltitude(bdLocation)), false);
         return true;
     }
 
@@ -722,6 +755,94 @@ public class RouteCreateActivity extends BaseActivity {
         }
         drawRoute(viewModel.getCurrentPoints());
         updateCreateModeUi();
+    }
+
+    private void showAutoAddPointsDialog() {
+        if (isRecording) {
+            return;
+        }
+        if (viewModel.getCurrentPoints().size() < 2) {
+            GoUtils.DisplayToast(this, getString(R.string.route_auto_add_need_points));
+            return;
+        }
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText("10");
+        input.setHint(getString(R.string.route_auto_add_hint));
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_auto_add_title)
+                .setMessage(R.string.route_auto_add_message)
+                .setView(input)
+                .setPositiveButton(R.string.route_auto_add_confirm, (dialog, which) -> {
+                    String rawValue = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (TextUtils.isEmpty(rawValue)) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_auto_add_invalid));
+                        return;
+                    }
+                    try {
+                        int count = Integer.parseInt(rawValue);
+                        if (count <= 0) {
+                            throw new IllegalArgumentException("count must be positive");
+                        }
+                        selectedPointIndex = -1;
+                        closeRoutePromptVisible = false;
+                        viewModel.setPoints(RouteEditUtils.insertEvenlySpacedPoints(viewModel.getCurrentPoints(), count));
+                        GoUtils.DisplayToast(this, getString(R.string.route_auto_add_success, count));
+                    } catch (Exception exception) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_auto_add_invalid));
+                    }
+                })
+                .setNegativeButton(R.string.route_share_cancel, null)
+                .show();
+    }
+
+    private void showSmoothCornersDialog() {
+        if (isRecording) {
+            return;
+        }
+        if (viewModel.getCurrentPoints().size() < 3) {
+            GoUtils.DisplayToast(this, getString(R.string.route_smooth_corner_need_points));
+            return;
+        }
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        input.setText("3.0");
+        input.setHint(getString(R.string.route_smooth_corner_hint));
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_smooth_corner_title)
+                .setMessage(R.string.route_smooth_corner_message)
+                .setView(input)
+                .setPositiveButton(R.string.route_smooth_corner_confirm, (dialog, which) -> {
+                    String rawValue = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (TextUtils.isEmpty(rawValue)) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_smooth_corner_invalid));
+                        return;
+                    }
+                    try {
+                        double radiusMeters = Double.parseDouble(rawValue);
+                        if (radiusMeters <= 0d) {
+                            throw new IllegalArgumentException("radius must be positive");
+                        }
+                        List<RoutePoint> smoothedPoints = RouteEditUtils.smoothRightAngles(
+                                viewModel.getCurrentPoints(),
+                                radiusMeters,
+                                85d,
+                                95d
+                        );
+                        if (smoothedPoints.size() == viewModel.getCurrentPoints().size()) {
+                            GoUtils.DisplayToast(this, getString(R.string.route_smooth_corner_no_match));
+                            return;
+                        }
+                        selectedPointIndex = -1;
+                        closeRoutePromptVisible = false;
+                        viewModel.setPoints(smoothedPoints);
+                        GoUtils.DisplayToast(this, getString(R.string.route_smooth_corner_success));
+                    } catch (Exception exception) {
+                        GoUtils.DisplayToast(this, getString(R.string.route_smooth_corner_invalid));
+                    }
+                })
+                .setNegativeButton(R.string.route_share_cancel, null)
+                .show();
     }
 
     private void clearSelectedPoint() {
@@ -795,6 +916,30 @@ public class RouteCreateActivity extends BaseActivity {
         );
     }
 
+    @NonNull
+    private RoutePoint buildMovedRoutePoint(@NonNull RoutePoint sourcePoint, @NonNull LatLng latLng) {
+        return buildRoutePoint(latLng, sourcePoint.getAltitude());
+    }
+
+    private boolean insertRoutePointNearClick(@NonNull LatLng latLng) {
+        List<RoutePoint> currentPoints = viewModel.getCurrentPoints();
+        if (currentPoints.size() < 2) {
+            return false;
+        }
+        RouteEditUtils.ProjectionResult projectionResult = RouteEditUtils.projectPointOntoRoute(
+                currentPoints,
+                buildRoutePoint(latLng, DEFAULT_ALTITUDE)
+        );
+        if (!projectionResult.isValid()
+                || projectionResult.getDistanceToRouteMeters() > ROUTE_INSERT_MAX_DISTANCE_METERS) {
+            return false;
+        }
+        viewModel.setPoints(RouteEditUtils.insertPointOnRoute(currentPoints, projectionResult));
+        selectedPointIndex = projectionResult.getSegmentStartIndex() + 1;
+        closeRoutePromptVisible = false;
+        return true;
+    }
+
     private void updateCreateModeUi() {
         boolean recordModeEnabled = isRecordModeEnabled();
         if (recordButton != null) {
@@ -832,6 +977,18 @@ public class RouteCreateActivity extends BaseActivity {
         if (editToolButton != null) {
             editToolButton.setEnabled(toolMode != TOOL_MODE_EDIT && !viewModel.getCurrentPoints().isEmpty());
         }
+        if (autoAddToolButton != null) {
+            autoAddToolButton.setEnabled(!isRecording && viewModel.getCurrentPoints().size() >= 2);
+        }
+        if (smoothCornerToolButton != null) {
+            smoothCornerToolButton.setEnabled(!isRecording && viewModel.getCurrentPoints().size() >= 3);
+        }
+        if (undoToolButton != null) {
+            undoToolButton.setEnabled(!isRecording && viewModel.canUndo());
+        }
+        if (redoToolButton != null) {
+            redoToolButton.setEnabled(!isRecording && viewModel.canRedo());
+        }
         boolean showSelectedActions = showToolbox && toolMode == TOOL_MODE_EDIT && selectedPointIndex >= 0;
         if (keepToolButton != null) {
             keepToolButton.setVisibility(showSelectedActions ? View.VISIBLE : View.GONE);
@@ -857,8 +1014,8 @@ public class RouteCreateActivity extends BaseActivity {
             routeHintView.setText(getString(R.string.route_record_hint_idle, recordIntervalSeconds));
         } else if (toolMode == TOOL_MODE_EDIT) {
             routeHintView.setText(selectedPointIndex >= 0
-                    ? getString(R.string.route_selected_point_format, selectedPointIndex + 1)
-                    : getString(R.string.route_edit_mode_hint));
+                    ? getString(R.string.route_edit_selected_click_hint, selectedPointIndex + 1)
+                    : getString(R.string.route_edit_mode_click_hint));
         } else if (closeRoutePromptVisible && canCloseCurrentRoute()) {
             routeHintView.setText(R.string.route_close_hint);
         } else if (!TextUtils.isEmpty(editingRouteId)) {

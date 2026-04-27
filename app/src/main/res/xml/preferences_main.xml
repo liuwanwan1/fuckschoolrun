@@ -92,6 +92,16 @@
             app:iconSpaceReserved="false"/>
 
         <Preference
+            app:key="setting_user_agreement"
+            app:title="@string/setting_user_agreement"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
+            app:key="setting_disclaimer"
+            app:title="@string/setting_disclaimer"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
             app:key="setting_license_protocol"
             app:title="@string/setting_license_protocol"
             app:summary="@string/setting_license_protocol_summary"
@@ -113,6 +123,12 @@
             app:key="setting_project_link"
             app:title="@string/setting_project_link"
             app:summary="@string/setting_project_link_summary"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
+            app:key="setting_bilibili_link"
+            app:title="@string/setting_bilibili_link"
+            app:summary="@string/app_bilibili_url"
             app:iconSpaceReserved="false"/>
     </PreferenceCategory>
 

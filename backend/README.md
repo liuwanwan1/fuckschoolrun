@@ -36,6 +36,19 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ## API
 
 - `GET /api/health`
+- `GET /api/client-config`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/auth/alerts`
+- `GET /api/tips`
+- `GET /api/tips/{id}`
+- `POST /api/tips`
+- `PUT /api/tips/{id}`
+- `DELETE /api/tips/{id}`
+- `POST /api/tips/import-word`
+- `GET /api/shared/simulation-configs`
+- `POST /api/shared/simulation-configs`
+- `GET /api/shared/simulation-configs/{id}`
 - `GET /api/shared/routes`
 - `POST /api/shared/routes`
 - `GET /api/shared/routes/{id}`
@@ -50,6 +63,8 @@ Built-in admin panel:
 - login API: `POST /api/admin/login`
 - route management: list / edit / delete
 - NFC management: list / edit / delete
+- internal account management: list / create / update
+- notice management: get / update
 
 ## Server Deployment
 

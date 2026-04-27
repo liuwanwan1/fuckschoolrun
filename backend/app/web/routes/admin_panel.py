@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core.config import settings
 from app.web.auth import is_admin_authenticated
 
 router = APIRouter()
@@ -18,6 +19,21 @@ def admin_page(request: Request):
         context={
             "authenticated": is_admin_authenticated(request),
             "admin_username": request.session.get("admin_username"),
+            "client_variant": settings.internal_auth_variant,
+        },
+    )
+
+
+@router.get("/admin/ops", response_class=HTMLResponse)
+@router.get("/ops-admin", response_class=HTMLResponse)
+def admin_ops_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_ops.html",
+        context={
+            "authenticated": is_admin_authenticated(request),
+            "admin_username": request.session.get("admin_username"),
+            "client_variant": settings.internal_auth_variant,
         },
     )
 

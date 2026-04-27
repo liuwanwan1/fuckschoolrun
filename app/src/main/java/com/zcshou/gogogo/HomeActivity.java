@@ -110,6 +110,11 @@ public class HomeActivity extends BaseActivity implements HomeMineFragment.Actio
     }
 
     @Override
+    public void onInternalLoginClicked() {
+        open(InternalLoginActivity.class);
+    }
+
+    @Override
     public void onDeveloperOptionsClicked() {
         openDeveloperSettings(null);
     }

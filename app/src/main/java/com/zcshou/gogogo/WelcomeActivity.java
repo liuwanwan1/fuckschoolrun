@@ -1,345 +1,426 @@
 package com.acooldog.toolbox;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.TextPaint;
 import android.text.method.LinkMovementMethod;
-import android.text.method.MovementMethod;
 import android.text.style.ClickableSpan;
-import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
-import android.view.Window;
-import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.StringRes;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.preference.PreferenceManager;
 
+import com.acooldog.toolbox.share.domain.model.AppClientConfig;
+import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.utils.GoUtils;
 
 import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class WelcomeActivity extends AppCompatActivity {
-    private static SharedPreferences preferences;
+    private static final String LEGAL_PREFS_NAME = "KEY_ACCEPT_AGREEMENT";
     private static final String KEY_ACCEPT_AGREEMENT = "KEY_ACCEPT_AGREEMENT";
     private static final String KEY_ACCEPT_PRIVACY = "KEY_ACCEPT_PRIVACY";
-
-    private static boolean isPermission = false;
+    private static final String KEY_ACCEPT_DISCLAIMER = "KEY_ACCEPT_DISCLAIMER";
     private static final int SDK_PERMISSION_REQUEST = 127;
-    private static final ArrayList<String> ReqPermissions = new ArrayList<>();
+    private static final long SPLASH_DURATION_MILLIS = 1000L;
+    private static final long REMOTE_NOTICE_TIMEOUT_MILLIS = 1500L;
 
-    private CheckBox checkBox;
-    private Boolean mAgreement;
-    private Boolean mPrivacy;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private SharedPreferences preferences;
+    private ExecutorService ioExecutor;
+    private boolean agreementAccepted;
+    private boolean disclaimerAccepted;
+    private boolean startupFlowStarted;
+    private View logoView;
+    private View titleView;
+    private View subtitleView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         setContentView(R.layout.activity_welcome);
 
-        // 生成默认参数的值（一定要尽可能早的调用，因为后续有些界面可能需要使用参数）
         PreferenceManager.setDefaultValues(this, R.xml.preferences_main, false);
 
-        Button startBtn = findViewById(R.id.startButton);
-        startBtn.setOnClickListener(v -> startMainActivity());
+        preferences = getSharedPreferences(LEGAL_PREFS_NAME, MODE_PRIVATE);
+        ioExecutor = Executors.newSingleThreadExecutor();
+        agreementAccepted = preferences.getBoolean(KEY_ACCEPT_AGREEMENT, false);
+        disclaimerAccepted = preferences.getBoolean(
+                KEY_ACCEPT_DISCLAIMER,
+                preferences.getBoolean(KEY_ACCEPT_PRIVACY, false)
+        );
 
-        checkAgreementAndPrivacy();
-        showEntryNoticeDialog();
-    }
+        logoView = findViewById(R.id.welcome_logo);
+        titleView = findViewById(R.id.welcome_title);
+        subtitleView = findViewById(R.id.welcome_subtitle);
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
+        startSplashAnimation();
+        mainHandler.postDelayed(this::beginStartupFlow, SPLASH_DURATION_MILLIS);
     }
 
     @Override
     protected void onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null);
+        if (ioExecutor != null) {
+            ioExecutor.shutdownNow();
+        }
         super.onDestroy();
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         if (requestCode == SDK_PERMISSION_REQUEST) {
-            for (int i = 0; i < ReqPermissions.size(); i++) {
-                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
-                    GoUtils.DisplayToast(this, getResources().getString(R.string.app_error_permission));
-                    return;
-                }
+            if (allPermissionsGranted(grantResults)) {
+                enterHome();
+            } else {
+                GoUtils.DisplayToast(this, getString(R.string.app_error_permission));
+                finish();
             }
-            isPermission = true;
         }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
-    private void checkDefaultPermissions() {
-        // 定位精确位置
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ReqPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+    private void startSplashAnimation() {
+        if (logoView != null) {
+            logoView.setAlpha(0f);
+            logoView.setScaleX(0.82f);
+            logoView.setScaleY(0.82f);
+            logoView.animate()
+                    .alpha(1f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(SPLASH_DURATION_MILLIS)
+                    .start();
         }
-
-        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ReqPermissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        if (titleView != null) {
+            titleView.setAlpha(0f);
+            titleView.setTranslationY(36f);
+            titleView.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(SPLASH_DURATION_MILLIS)
+                    .start();
         }
-
-        /*
-         * 读写权限和电话状态权限非必要权限(建议授予)只会申请一次，用户同意或者禁止，只会弹一次
-         */
-        // 读写权限
-        if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            ReqPermissions.add(Manifest.permission.READ_EXTERNAL_STORAGE);
-        }
-
-        // 读取电话状态权限
-        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
-            ReqPermissions.add(Manifest.permission.READ_PHONE_STATE);
-        }
-
-        if (ReqPermissions.isEmpty()) {
-            isPermission = true;
-        } else {
-            requestPermissions(ReqPermissions.toArray(new String[0]), SDK_PERMISSION_REQUEST);
+        if (subtitleView != null) {
+            subtitleView.setAlpha(0f);
+            subtitleView.setTranslationY(48f);
+            subtitleView.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setStartDelay(150L)
+                    .setDuration(SPLASH_DURATION_MILLIS - 150L)
+                    .start();
         }
     }
 
-    private void startMainActivity() {
-        if (!checkBox.isChecked()) {
-            showAgreementRequiredDialog();
+    private void beginStartupFlow() {
+        if (startupFlowStarted || isFinishing() || isDestroyed()) {
             return;
         }
-
-        if (!GoUtils.isNetworkAvailable(this)) {
-            GoUtils.DisplayToast(this, getResources().getString(R.string.app_error_network));
+        startupFlowStarted = true;
+        if (!agreementAccepted || !disclaimerAccepted) {
+            showLegalConsentDialog();
             return;
         }
-
-        if (!GoUtils.isGpsOpened(this)) {
-            GoUtils.DisplayToast(this, getResources().getString(R.string.app_error_gps));
-            return;
-        }
-
-        if (isPermission) {
-            Intent intent = new Intent(WelcomeActivity.this, HomeActivity.class);
-            startActivity(intent);
-            WelcomeActivity.this.finish();
-        } else {
-            checkDefaultPermissions();
-        }
+        showEntryNoticeThenContinue();
     }
 
-    private void doAcceptation() {
-        if (mAgreement && mPrivacy) {
-            checkBox.setChecked(true);
-            checkDefaultPermissions();
-        } else {
-            checkBox.setChecked(false);
-        }
-        //实例化Editor对象
-        SharedPreferences.Editor editor = preferences.edit();
-        //存入数据
-        editor.putBoolean(KEY_ACCEPT_AGREEMENT, mAgreement);
-        editor.putBoolean(KEY_ACCEPT_PRIVACY, mPrivacy);
-        //提交修改
-        editor.apply();
+    private void showLegalConsentDialog() {
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_legal_consent, null);
+        TextView linksView = dialogView.findViewById(R.id.legal_consent_links);
+        CheckBox consentCheckBox = dialogView.findViewById(R.id.legal_consent_checkbox);
+
+        linksView.setMovementMethod(LinkMovementMethod.getInstance());
+        linksView.setText(buildLegalLinkText(), TextView.BufferType.SPANNABLE);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.app_error_agreement_dialog_title)
+                .setView(dialogView)
+                .setCancelable(false)
+                .setPositiveButton(R.string.legal_consent_confirm, null)
+                .setNegativeButton(R.string.legal_consent_cancel, (ignored, which) -> finish())
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (!consentCheckBox.isChecked()) {
+                GoUtils.DisplayToast(this, getString(R.string.app_error_agreement));
+                return;
+            }
+            saveAgreementAcceptance();
+            dialog.dismiss();
+            showEntryNoticeThenContinue();
+        }));
+        dialog.show();
     }
 
-    private void showAgreementDialog() {
-        final AlertDialog alertDialog = new AlertDialog.Builder(this).create();
-        alertDialog.show();
-        alertDialog.setCancelable(false);
-        Window window = alertDialog.getWindow();
-        if (window != null) {
-            window.setContentView(R.layout.user_agreement);
-            window.setGravity(Gravity.CENTER);
-            window.setWindowAnimations(R.style.DialogAnimFadeInFadeOut);
-
-            TextView tvContent = window.findViewById(R.id.tv_content);
-            Button tvCancel = window.findViewById(R.id.tv_cancel);
-            Button tvAgree = window.findViewById(R.id.tv_agree);
-            SpannableStringBuilder ssb = new SpannableStringBuilder();
-            ssb.append(getResources().getString(R.string.app_agreement_content));
-            tvContent.setMovementMethod(LinkMovementMethod.getInstance());
-            tvContent.setText(ssb, TextView.BufferType.SPANNABLE);
-
-            tvCancel.setOnClickListener(v -> {
-                mAgreement = false;
-
-                doAcceptation();
-
-                alertDialog.cancel();
-            });
-
-            tvAgree.setOnClickListener(v -> {
-                mAgreement = true;
-
-                doAcceptation();
-
-                alertDialog.cancel();
-            });
-        }
-    }
-
-    private void showPrivacyDialog() {
-        final AlertDialog alertDialog = new AlertDialog.Builder(this).create();
-        alertDialog.show();
-        alertDialog.setCancelable(false);
-        Window window = alertDialog.getWindow();
-        if (window != null) {
-            window.setContentView(R.layout.user_privacy);
-            window.setGravity(Gravity.CENTER);
-            window.setWindowAnimations(R.style.DialogAnimFadeInFadeOut);
-
-            TextView tvContent = window.findViewById(R.id.tv_content);
-            Button tvCancel = window.findViewById(R.id.tv_cancel);
-            Button tvAgree = window.findViewById(R.id.tv_agree);
-            SpannableStringBuilder ssb = new SpannableStringBuilder();
-            ssb.append(getResources().getString(R.string.app_privacy_content));
-            tvContent.setMovementMethod(LinkMovementMethod.getInstance());
-            tvContent.setText(ssb, TextView.BufferType.SPANNABLE);
-
-            tvCancel.setOnClickListener(v -> {
-                mPrivacy = false;
-
-                doAcceptation();
-
-                alertDialog.cancel();
-            });
-
-            tvAgree.setOnClickListener(v -> {
-                mPrivacy = true;
-
-                doAcceptation();
-
-                alertDialog.cancel();
-            });
-        }
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private void checkAgreementAndPrivacy() {
-        preferences = getSharedPreferences(KEY_ACCEPT_AGREEMENT, MODE_PRIVATE);
-        mPrivacy = preferences.getBoolean(KEY_ACCEPT_PRIVACY, false);
-        mAgreement = preferences.getBoolean(KEY_ACCEPT_AGREEMENT, false);
-
-        checkBox = findViewById(R.id.check_agreement);
-        // 拦截 CheckBox 的点击事件
-        checkBox.setOnTouchListener((v, event) -> {
-            if (v instanceof TextView) {
-                TextView text = (TextView) v;
-                MovementMethod method = text.getMovementMethod();
-                if (method != null && text.getText() instanceof Spannable
-                        && event.getAction() == MotionEvent.ACTION_UP) {
-                    if (method.onTouchEvent(text, (Spannable) text.getText(), event)) {
-                        event.setAction(MotionEvent.ACTION_CANCEL);
-                    }
-                }
-            }
-            return false;
-        });
-        checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) {
-                if (!mPrivacy || !mAgreement) {
-                    showAgreementRequiredDialog();
-                    checkBox.setChecked(false);
-                }
-            } else {
-                mPrivacy = false;
-                mAgreement = false;
-            }
-        });
-
-        String str = getString(R.string.app_agreement_privacy);
-        SpannableStringBuilder builder = getSpannableStringBuilder(str);
-
-        checkBox.setText(builder);
-        checkBox.setMovementMethod(LinkMovementMethod.getInstance());
-
-        if (mPrivacy && mAgreement) {
-            checkBox.setChecked(true);
-            checkDefaultPermissions();
-        } else {
-            checkBox.setChecked(false);
-        }
-    }
-
-    @NonNull
-    private SpannableStringBuilder getSpannableStringBuilder(String str) {
-        SpannableStringBuilder builder = new SpannableStringBuilder(str);
-        ClickableSpan clickSpanAgreement = new ClickableSpan() {
-            @Override
-            public void onClick(@NonNull View widget) {
-                showAgreementDialog();
-            }
-
-            @Override
-            public void updateDrawState(TextPaint ds) {
-                ds.setColor(getResources().getColor(R.color.colorPrimary, WelcomeActivity.this.getTheme()));
-                ds.setUnderlineText(false);
-            }
-        };
-        int agreement_start = str.indexOf("《");
-        int agreement_end = str.indexOf("》") + 1;
-        builder.setSpan(clickSpanAgreement, agreement_start,agreement_end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        ClickableSpan clickSpanPrivacy = new ClickableSpan() {
-            @Override
-            public void onClick(@NonNull View widget) {
-                showPrivacyDialog();
-            }
-
-            @Override
-            public void updateDrawState(TextPaint ds) {
-                ds.setColor(getResources().getColor(R.color.colorPrimary, WelcomeActivity.this.getTheme()));
-                ds.setUnderlineText(false);
-            }
-        };
-        int privacy_start = str.indexOf("《", agreement_end);
-        int privacy_end = str.indexOf("》", agreement_end) + 1;
-        builder.setSpan(clickSpanPrivacy, privacy_start, privacy_end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+    private SpannableStringBuilder buildLegalLinkText() {
+        String text = getString(R.string.legal_consent_link_text);
+        SpannableStringBuilder builder = new SpannableStringBuilder(text);
+        applyClickableSpan(builder, text, "《用户协议》", () -> showDocumentDialog(R.string.app_agreement, R.string.app_agreement_content));
+        applyClickableSpan(builder, text, "《免责声明》", () -> showDocumentDialog(R.string.app_privacy, R.string.app_privacy_content));
         return builder;
     }
 
-    private void showEntryNoticeDialog() {
+    private void applyClickableSpan(
+            SpannableStringBuilder builder,
+            String fullText,
+            String target,
+            Runnable action
+    ) {
+        int start = fullText.indexOf(target);
+        if (start < 0) {
+            return;
+        }
+        int end = start + target.length();
+        builder.setSpan(new ClickableSpan() {
+            @Override
+            public void onClick(@NonNull View widget) {
+                action.run();
+            }
+
+            @Override
+            public void updateDrawState(@NonNull TextPaint ds) {
+                ds.setColor(getResources().getColor(R.color.colorPrimary, getTheme()));
+                ds.setUnderlineText(false);
+            }
+        }, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+
+    private void showDocumentDialog(@StringRes int titleResId, @StringRes int contentResId) {
+        ScrollView scrollView = new ScrollView(this);
+        int padding = Math.round(getResources().getDisplayMetrics().density * 20f);
+        TextView contentView = new TextView(this);
+        contentView.setPadding(padding, padding, padding, padding);
+        contentView.setLineSpacing(0f, 1.25f);
+        contentView.setText(getString(contentResId));
+        scrollView.addView(contentView);
+
         new AlertDialog.Builder(this)
-                .setTitle(R.string.app_entry_notice_title)
-                .setMessage(R.string.app_entry_notice_message)
-                .setNegativeButton(R.string.app_entry_notice_copy_group, (dialog, which) -> {
-                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    if (clipboard != null) {
-                        clipboard.setPrimaryClip(ClipData.newPlainText("qq_group", "1073565389"));
-                        GoUtils.DisplayToast(this, getString(R.string.app_entry_notice_group_copied));
-                    }
-                })
-                .setPositiveButton(R.string.app_entry_notice_known, null)
+                .setTitle(titleResId)
+                .setView(scrollView)
+                .setPositiveButton(R.string.legal_document_close, null)
                 .show();
     }
 
-    private void showAgreementRequiredDialog() {
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.app_error_agreement_dialog_title)
-                .setMessage(R.string.app_error_agreement_dialog_message)
-                .setPositiveButton(R.string.app_error_agreement_dialog_button, null)
-                .show();
+    private void saveAgreementAcceptance() {
+        agreementAccepted = true;
+        disclaimerAccepted = true;
+        preferences.edit()
+                .putBoolean(KEY_ACCEPT_AGREEMENT, true)
+                .putBoolean(KEY_ACCEPT_PRIVACY, true)
+                .putBoolean(KEY_ACCEPT_DISCLAIMER, true)
+                .apply();
+    }
+
+    private void showEntryNoticeThenContinue() {
+        resolveEntryNoticeContent(content -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            showEntryNoticeDialog(content);
+        });
+    }
+
+    private void resolveEntryNoticeContent(@NonNull EntryNoticeCallback callback) {
+        EntryNoticeContent fallback = EntryNoticeContent.local(this);
+        if (!GoUtils.isNetworkAvailable(this)) {
+            callback.onReady(fallback);
+            return;
+        }
+
+        AtomicBoolean delivered = new AtomicBoolean(false);
+        Runnable fallbackRunnable = () -> {
+            if (delivered.compareAndSet(false, true)) {
+                callback.onReady(fallback);
+            }
+        };
+        mainHandler.postDelayed(fallbackRunnable, REMOTE_NOTICE_TIMEOUT_MILLIS);
+
+        ioExecutor.execute(() -> {
+            EntryNoticeContent resolved = fallback;
+            try {
+                AppClientConfig config = ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .getAppClientConfig();
+                resolved = EntryNoticeContent.fromRemote(config, fallback);
+            } catch (Exception ignored) {
+                resolved = fallback;
+            }
+            EntryNoticeContent finalResolved = resolved;
+            runOnUiThread(() -> {
+                if (delivered.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(fallbackRunnable);
+                    callback.onReady(finalResolved);
+                }
+            });
+        });
+    }
+
+    private void showEntryNoticeDialog(@NonNull EntryNoticeContent content) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(content.title)
+                .setMessage(content.buildDialogMessage())
+                .setCancelable(false)
+                .setPositiveButton(R.string.app_entry_notice_known, null)
+                .create();
+        if (!content.groupNumber.isEmpty()) {
+            dialog.setButton(AlertDialog.BUTTON_NEUTRAL, getString(R.string.app_entry_notice_copy_group), (d, which) -> {
+            });
+        }
+        if (!content.bilibiliUrl.isEmpty()) {
+            dialog.setButton(AlertDialog.BUTTON_NEGATIVE, getString(R.string.app_entry_notice_open_bilibili), (d, which) -> {
+            });
+        }
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                dialog.dismiss();
+                ensurePermissionsThenEnterHome();
+            });
+            if (!content.groupNumber.isEmpty()) {
+                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> copyGroupNumber(content.groupNumber));
+            }
+            if (!content.bilibiliUrl.isEmpty()) {
+                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> openBilibiliHomepage(content.bilibiliUrl));
+            }
+        });
+        dialog.show();
+    }
+
+    private void copyGroupNumber(@NonNull String groupNumber) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("qq_group", groupNumber));
+            GoUtils.DisplayToast(this, getString(R.string.app_entry_notice_group_copied));
+        }
+    }
+
+    private void openBilibiliHomepage(@NonNull String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception exception) {
+            GoUtils.DisplayToast(this, getString(R.string.app_error_network));
+        }
+    }
+
+    private void ensurePermissionsThenEnterHome() {
+        List<String> missingPermissions = getMissingPermissions();
+        if (missingPermissions.isEmpty()) {
+            enterHome();
+            return;
+        }
+        requestPermissions(missingPermissions.toArray(new String[0]), SDK_PERMISSION_REQUEST);
+    }
+
+    @NonNull
+    private List<String> getMissingPermissions() {
+        List<String> missing = new ArrayList<>();
+        collectMissingPermission(missing, Manifest.permission.ACCESS_FINE_LOCATION);
+        collectMissingPermission(missing, Manifest.permission.ACCESS_COARSE_LOCATION);
+        collectMissingPermission(missing, Manifest.permission.READ_EXTERNAL_STORAGE);
+        collectMissingPermission(missing, Manifest.permission.READ_PHONE_STATE);
+        return missing;
+    }
+
+    private void collectMissingPermission(@NonNull List<String> missing, @NonNull String permission) {
+        if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+            missing.add(permission);
+        }
+    }
+
+    private boolean allPermissionsGranted(@NonNull int[] grantResults) {
+        if (grantResults.length == 0) {
+            return false;
+        }
+        for (int result : grantResults) {
+            if (result != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void enterHome() {
+        startActivity(new Intent(this, HomeActivity.class));
+        finish();
+    }
+
+    private interface EntryNoticeCallback {
+        void onReady(@NonNull EntryNoticeContent content);
+    }
+
+    private static final class EntryNoticeContent {
+        private final String title;
+        private final String message;
+        private final String groupNumber;
+        private final String bilibiliText;
+        private final String bilibiliUrl;
+
+        private EntryNoticeContent(
+                String title,
+                String message,
+                String groupNumber,
+                String bilibiliText,
+                String bilibiliUrl
+        ) {
+            this.title = title == null ? "" : title.trim();
+            this.message = message == null ? "" : message.trim();
+            this.groupNumber = groupNumber == null ? "" : groupNumber.trim();
+            this.bilibiliText = bilibiliText == null ? "" : bilibiliText.trim();
+            this.bilibiliUrl = bilibiliUrl == null ? "" : bilibiliUrl.trim();
+        }
+
+        @NonNull
+        private static EntryNoticeContent local(@NonNull WelcomeActivity activity) {
+            return new EntryNoticeContent(
+                    activity.getString(R.string.app_entry_notice_title),
+                    activity.getString(R.string.app_entry_notice_message),
+                    activity.getString(R.string.app_entry_notice_group_number),
+                    activity.getString(R.string.app_bilibili_notice_text),
+                    activity.getString(R.string.app_bilibili_url)
+            );
+        }
+
+        @NonNull
+        private static EntryNoticeContent fromRemote(@NonNull AppClientConfig remote, @NonNull EntryNoticeContent fallback) {
+            return new EntryNoticeContent(
+                    firstNonEmpty(remote.getNoticeTitle(), fallback.title),
+                    firstNonEmpty(remote.getNoticeMessage(), fallback.message),
+                    firstNonEmpty(remote.getQqGroupNumber(), fallback.groupNumber),
+                    firstNonEmpty(remote.getBilibiliText(), fallback.bilibiliText),
+                    firstNonEmpty(remote.getBilibiliUrl(), fallback.bilibiliUrl)
+            );
+        }
+
+        @NonNull
+        private String buildDialogMessage() {
+            if (bilibiliText.isEmpty()) {
+                return message;
+            }
+            return message + "\n\n" + bilibiliText;
+        }
+
+        @NonNull
+        private static String firstNonEmpty(String preferred, String fallback) {
+            return preferred == null || preferred.trim().isEmpty() ? fallback : preferred.trim();
+        }
     }
 }

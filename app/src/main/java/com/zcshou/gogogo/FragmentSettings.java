@@ -4,7 +4,11 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
+import android.widget.ScrollView;
+import android.widget.TextView;
 
+import androidx.annotation.StringRes;
+import androidx.appcompat.app.AlertDialog;
 import androidx.preference.EditTextPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
@@ -43,6 +47,36 @@ public class FragmentSettings extends PreferenceFragmentCompat {
             startActivity(intent);
             return true;
         });
+    }
+
+    private void setupDocumentPreference(String key, @StringRes int titleResId, @StringRes int contentResId) {
+        Preference preference = findPreference(key);
+        if (preference == null) {
+            return;
+        }
+        preference.setOnPreferenceClickListener(pref -> {
+            showDocumentDialog(titleResId, contentResId);
+            return true;
+        });
+    }
+
+    private void showDocumentDialog(@StringRes int titleResId, @StringRes int contentResId) {
+        if (getContext() == null) {
+            return;
+        }
+        ScrollView scrollView = new ScrollView(getContext());
+        int padding = Math.round(getResources().getDisplayMetrics().density * 20f);
+        TextView contentView = new TextView(getContext());
+        contentView.setPadding(padding, padding, padding, padding);
+        contentView.setLineSpacing(0f, 1.25f);
+        contentView.setText(getString(contentResId));
+        scrollView.addView(contentView);
+
+        new AlertDialog.Builder(requireContext())
+                .setTitle(titleResId)
+                .setView(scrollView)
+                .setPositiveButton(R.string.legal_document_close, null)
+                .show();
     }
 
     @Override
@@ -94,9 +128,12 @@ public class FragmentSettings extends PreferenceFragmentCompat {
         EditTextPreference pfLonOffset = findPreference("setting_lon_max_offset");
         setupDecimalEditTextPreference(pfLonOffset);
 
+        setupDocumentPreference("setting_user_agreement", R.string.app_agreement, R.string.app_agreement_content);
+        setupDocumentPreference("setting_disclaimer", R.string.app_privacy, R.string.app_privacy_content);
         setupLinkPreference("setting_license_protocol", R.string.setting_license_protocol_link);
         setupLinkPreference("setting_yingsuo_link", R.string.setting_upstream_link_summary);
         setupLinkPreference("setting_reference_link", R.string.setting_reference_repo_link_summary);
         setupLinkPreference("setting_project_link", R.string.setting_project_link_summary);
+        setupLinkPreference("setting_bilibili_link", R.string.app_bilibili_url);
     }
 }

@@ -1,6 +1,7 @@
 package com.acooldog.toolbox.service;
 
 import android.annotation.SuppressLint;
+import android.content.pm.PackageManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -10,6 +11,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.location.Criteria;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.provider.ProviderProperties;
 import android.os.Binder;
@@ -23,6 +25,7 @@ import android.os.Process;
 import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.core.app.NotificationCompat;
 
 import com.elvishew.xlog.XLog;
@@ -40,6 +43,10 @@ public class ServiceGo extends Service {
     private static final int SERVICE_GO_NOTE_ID = 1;
     private static final String SERVICE_GO_NOTE_CHANNEL_ID = "SERVICE_GO_NOTE";
     private static final String SERVICE_GO_NOTE_CHANNEL_NAME = "SERVICE_GO_NOTE";
+    private static final long GPS_KEEPALIVE_MIN_TIME_MS = 200L;
+    private static final long NETWORK_KEEPALIVE_MIN_TIME_MS = 800L;
+    private static final float GPS_KEEPALIVE_MIN_DISTANCE_METERS = 0f;
+    private static final float NETWORK_KEEPALIVE_MIN_DISTANCE_METERS = 0f;
 
     private double mCurLat = DEFAULT_LAT;
     private double mCurLng = DEFAULT_LNG;
@@ -52,6 +59,11 @@ public class ServiceGo extends Service {
     private HandlerThread mLocHandlerThread;
     private Handler mLocHandler;
     private PowerManager.WakeLock mWakeLock;
+    private boolean gpsKeepaliveRegistered;
+    private boolean networkKeepaliveRegistered;
+
+    private final LocationListener gpsKeepaliveListener = new SimpleLocationListener();
+    private final LocationListener networkKeepaliveListener = new SimpleLocationListener();
 
     private final ServiceGoBinder mBinder = new ServiceGoBinder();
 
@@ -73,6 +85,7 @@ public class ServiceGo extends Service {
         addTestProviderGPS();
 
         initGoLocation();
+        initGpsKeepAlive();
         initWakeLock();
         initNotification();
     }
@@ -84,6 +97,8 @@ public class ServiceGo extends Service {
             mCurLat = intent.getDoubleExtra(MainActivity.LAT_MSG_ID, DEFAULT_LAT);
             mCurAlt = intent.getDoubleExtra(MainActivity.ALT_MSG_ID, DEFAULT_ALT);
         }
+        stopGpsKeepAlive();
+        initGpsKeepAlive();
         return START_STICKY;
     }
 
@@ -113,6 +128,7 @@ public class ServiceGo extends Service {
 
         removeTestProviderNetwork();
         removeTestProviderGPS();
+        stopGpsKeepAlive();
 
         stopForeground(STOP_FOREGROUND_REMOVE);
         releaseWakeLock();
@@ -189,6 +205,70 @@ public class ServiceGo extends Service {
         };
 
         mLocHandler.sendEmptyMessage(HANDLER_MSG_ID);
+    }
+
+    private void initGpsKeepAlive() {
+        if (mLocManager == null || !hasLocationPermission()) {
+            XLog.d("SERVICEGO: skip gps keepalive, location permission missing");
+            return;
+        }
+        try {
+            if (mLocManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                mLocManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        GPS_KEEPALIVE_MIN_TIME_MS,
+                        GPS_KEEPALIVE_MIN_DISTANCE_METERS,
+                        gpsKeepaliveListener,
+                        mLocHandlerThread.getLooper()
+                );
+                gpsKeepaliveRegistered = true;
+                XLog.d("SERVICEGO: gps keepalive registered");
+            }
+        } catch (Exception exception) {
+            XLog.e("SERVICEGO: ERROR - register gps keepalive");
+        }
+        try {
+            if (mLocManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                mLocManager.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        NETWORK_KEEPALIVE_MIN_TIME_MS,
+                        NETWORK_KEEPALIVE_MIN_DISTANCE_METERS,
+                        networkKeepaliveListener,
+                        mLocHandlerThread.getLooper()
+                );
+                networkKeepaliveRegistered = true;
+                XLog.d("SERVICEGO: network keepalive registered");
+            }
+        } catch (Exception exception) {
+            XLog.e("SERVICEGO: ERROR - register network keepalive");
+        }
+    }
+
+    private void stopGpsKeepAlive() {
+        if (mLocManager == null) {
+            return;
+        }
+        try {
+            if (gpsKeepaliveRegistered) {
+                mLocManager.removeUpdates(gpsKeepaliveListener);
+                gpsKeepaliveRegistered = false;
+            }
+        } catch (Exception exception) {
+            XLog.e("SERVICEGO: ERROR - remove gps keepalive");
+        }
+        try {
+            if (networkKeepaliveRegistered) {
+                mLocManager.removeUpdates(networkKeepaliveListener);
+                networkKeepaliveRegistered = false;
+            }
+        } catch (Exception exception) {
+            XLog.e("SERVICEGO: ERROR - remove network keepalive");
+        }
+    }
+
+    private boolean hasLocationPermission() {
+        return ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
     }
 
     private void removeTestProviderGPS() {
@@ -339,6 +419,13 @@ public class ServiceGo extends Service {
             mSpeed = speed;
             mCurBea = bearing;
             mLocHandler.sendEmptyMessage(HANDLER_MSG_ID);
+        }
+    }
+
+    private static final class SimpleLocationListener implements LocationListener {
+        @Override
+        public void onLocationChanged(@NonNull Location location) {
+            // Keep GNSS active without overriding the injected mock location.
         }
     }
 }

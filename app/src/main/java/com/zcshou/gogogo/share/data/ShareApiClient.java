@@ -6,11 +6,19 @@ import androidx.annotation.NonNull;
 
 import com.acooldog.toolbox.BuildConfig;
 import com.acooldog.toolbox.nfc.domain.NfcPayload;
+import com.acooldog.toolbox.route.domain.model.RouteSimulationConfig;
 import com.acooldog.toolbox.route.data.RoutePointJsonCodec;
 import com.acooldog.toolbox.route.domain.model.RoutePoint;
+import com.acooldog.toolbox.share.domain.model.AppClientConfig;
+import com.acooldog.toolbox.share.domain.model.InternalAccountProfile;
+import com.acooldog.toolbox.share.domain.model.InternalLoginResult;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
 import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
+import com.acooldog.toolbox.share.domain.model.SharedSimulationConfigEntry;
+import com.acooldog.toolbox.share.domain.model.UsageTipDetail;
+import com.acooldog.toolbox.share.domain.model.UsageTipSummary;
+import com.acooldog.toolbox.share.domain.model.WordImportResult;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -23,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -31,6 +40,7 @@ import okhttp3.ResponseBody;
 
 public final class ShareApiClient {
     private static final MediaType JSON_MEDIA_TYPE = MediaType.get("application/json; charset=utf-8");
+    private static final String CLIENT_VARIANT = "schoolrun_toolbox";
 
     private final OkHttpClient okHttpClient;
     private final HttpUrl baseUrl;
@@ -124,6 +134,181 @@ public final class ShareApiClient {
         return entries;
     }
 
+    public AppClientConfig getAppClientConfig() throws IOException {
+        Request request = new Request.Builder()
+                .url(buildUrl("api/client-config"))
+                .get()
+                .build();
+        return parseAppClientConfig(executeObject(request));
+    }
+
+    public InternalLoginResult loginInternalAccount(
+            String username,
+            String password,
+            String deviceId,
+            String deviceName
+    ) throws IOException {
+        JSONObject bodyJson = new JSONObject();
+        try {
+            bodyJson.put("username", username);
+            bodyJson.put("password", password);
+            bodyJson.put("deviceId", deviceId);
+            bodyJson.put("deviceName", deviceName);
+            bodyJson.put("appVariant", CLIENT_VARIANT);
+        } catch (JSONException exception) {
+            throw new IOException("Unable to encode auth login request", exception);
+        }
+
+        Request request = new Request.Builder()
+                .url(buildUrl("api/auth/login"))
+                .post(RequestBody.create(bodyJson.toString(), JSON_MEDIA_TYPE))
+                .build();
+        String responseText = executeRequest(request);
+        try {
+            JSONObject root = new JSONObject(responseText);
+            return new InternalLoginResult(
+                    root.optString("token", ""),
+                    parseInternalAccount(root.optJSONObject("account"))
+            );
+        } catch (JSONException exception) {
+            throw new IOException("Unable to parse auth login response", exception);
+        }
+    }
+
+    public List<UsageTipSummary> getUsageTips(String query, int page, int pageSize, String token) throws IOException {
+        HttpUrl url = buildUrl("api/tips").newBuilder()
+                .addQueryParameter("q", query == null ? "" : query)
+                .addQueryParameter("page", String.valueOf(Math.max(1, page)))
+                .addQueryParameter("pageSize", String.valueOf(Math.max(1, pageSize)))
+                .build();
+        Request request = newRequestBuilder(url, token).get().build();
+        JSONArray items = executeArray(request);
+        List<UsageTipSummary> results = new ArrayList<>();
+        for (int index = 0; index < items.length(); index++) {
+            results.add(parseUsageTipSummary(items.optJSONObject(index)));
+        }
+        return results;
+    }
+
+    public UsageTipDetail getUsageTip(String tipId, String token) throws IOException {
+        if (TextUtils.isEmpty(tipId)) {
+            throw new IOException("Missing usage tip id");
+        }
+        Request request = newRequestBuilder(buildUrl("api/tips/" + tipId), token).get().build();
+        return parseUsageTipDetail(executeObject(request));
+    }
+
+    public UsageTipDetail saveUsageTip(
+            String tipId,
+            String token,
+            String title,
+            String htmlContent,
+            String contributorQq,
+            boolean published
+    ) throws IOException {
+        JSONObject bodyJson = new JSONObject();
+        try {
+            bodyJson.put("title", title);
+            bodyJson.put("htmlContent", htmlContent);
+            bodyJson.put("contributorQq", contributorQq);
+            bodyJson.put("isPublished", published);
+        } catch (JSONException exception) {
+            throw new IOException("Unable to encode usage tip request", exception);
+        }
+        Request.Builder builder = newRequestBuilder(
+                buildUrl(TextUtils.isEmpty(tipId) ? "api/tips" : "api/tips/" + tipId),
+                token
+        );
+        builder.method(TextUtils.isEmpty(tipId) ? "POST" : "PUT", RequestBody.create(bodyJson.toString(), JSON_MEDIA_TYPE));
+        return parseUsageTipDetail(executeObject(builder.build()));
+    }
+
+    public void deleteUsageTip(String tipId, String token) throws IOException {
+        if (TextUtils.isEmpty(tipId)) {
+            throw new IOException("Missing usage tip id");
+        }
+        Request request = newRequestBuilder(buildUrl("api/tips/" + tipId), token).delete().build();
+        executeRequest(request);
+    }
+
+    public WordImportResult importWord(String token, String filename, byte[] bytes) throws IOException {
+        MultipartBody multipartBody = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(
+                        "file",
+                        TextUtils.isEmpty(filename) ? "tip.docx" : filename,
+                        RequestBody.create(bytes, MediaType.get("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                )
+                .build();
+        Request request = newRequestBuilder(buildUrl("api/tips/import-word"), token)
+                .post(multipartBody)
+                .build();
+        JSONObject jsonObject = executeObject(request);
+        return new WordImportResult(
+                optString(jsonObject, "htmlContent"),
+                optString(jsonObject, "plainText")
+        );
+    }
+
+    public List<SharedSimulationConfigEntry> getSharedSimulationConfigs(String query) throws IOException {
+        HttpUrl url = buildUrl("api/shared/simulation-configs").newBuilder()
+                .addQueryParameter("q", query == null ? "" : query)
+                .build();
+        Request request = new Request.Builder()
+                .url(url)
+                .get()
+                .build();
+        JSONArray items = executeArray(request);
+        List<SharedSimulationConfigEntry> results = new ArrayList<>();
+        for (int index = 0; index < items.length(); index++) {
+            results.add(parseSharedSimulationConfig(items.optJSONObject(index)));
+        }
+        return results;
+    }
+
+    public SharedSimulationConfigEntry getSharedSimulationConfig(String configId) throws IOException {
+        if (TextUtils.isEmpty(configId)) {
+            throw new IOException("Missing simulation config id");
+        }
+        Request request = new Request.Builder()
+                .url(buildUrl("api/shared/simulation-configs/" + configId))
+                .get()
+                .build();
+        return parseSharedSimulationConfig(executeObject(request));
+    }
+
+    public SharedSimulationConfigEntry uploadSharedSimulationConfig(
+            String name,
+            RouteSimulationConfig config,
+            String authorToken
+    ) throws IOException {
+        JSONObject bodyJson = new JSONObject();
+        try {
+            bodyJson.put("name", name);
+            bodyJson.put("mode", config.getMode() == RouteSimulationConfig.Mode.CADENCE ? "cadence" : "speed");
+            bodyJson.put("speed", config.getSpeedMetersPerSecond());
+            bodyJson.put("cadence", config.getCadenceStepsPerMinute());
+            bodyJson.put("loopCount", config.getLoopCount());
+            bodyJson.put("dynamicIntensityEnabled", config.isDynamicIntensityEnabled());
+            bodyJson.put("intensityVariationRange", config.getIntensityVariationRangeMetersPerSecond());
+            bodyJson.put("intensityVariationFrequency", config.getIntensityVariationFrequency());
+            bodyJson.put("naturalPathVariationEnabled", config.isNaturalPathVariationEnabled());
+            bodyJson.put("pathVariationAmplitude", config.getPathVariationAmplitudeMeters());
+            bodyJson.put("naturalAltitudeVariationEnabled", config.isNaturalAltitudeVariationEnabled());
+            bodyJson.put("altitudeVariationRange", config.getAltitudeVariationRangeMeters());
+            bodyJson.put("altitudeVariationHeightCentimeters", config.getAltitudeVariationHeightCentimeters());
+            bodyJson.put("altitudeVariationProbability", config.getAltitudeVariationProbability());
+            bodyJson.put("linkRatioNumerator", config.getLinkRatioNumerator());
+            bodyJson.put("stepsPerMeter", config.getStepsPerMeter());
+        } catch (JSONException exception) {
+            throw new IOException("Unable to encode simulation config request", exception);
+        }
+        Request request = newRequestBuilder(buildUrl("api/shared/simulation-configs"), authorToken)
+                .post(RequestBody.create(bodyJson.toString(), JSON_MEDIA_TYPE))
+                .build();
+        return parseSharedSimulationConfig(executeObject(request));
+    }
+
     private HttpUrl parseBaseUrl(String configuredBaseUrl) throws IOException {
         if (configuredBaseUrl == null || configuredBaseUrl.trim().isEmpty()) {
             return null;
@@ -148,6 +333,15 @@ public final class ShareApiClient {
             throw new IOException("Unable to resolve share API path: " + relativePath);
         }
         return url;
+    }
+
+    private Request.Builder newRequestBuilder(HttpUrl url, String token) {
+        Request.Builder builder = new Request.Builder().url(url);
+        if (!TextUtils.isEmpty(token)) {
+            builder.header("Authorization", "Bearer " + token.trim());
+        }
+        builder.header("X-Client-Variant", TextUtils.isEmpty(token) ? "public" : CLIENT_VARIANT);
+        return builder;
     }
 
     private JSONArray executeArray(Request request) throws IOException {
@@ -228,10 +422,36 @@ public final class ShareApiClient {
             ResponseBody responseBody = response.body();
             String responseText = responseBody == null ? "" : responseBody.string();
             if (!response.isSuccessful()) {
-                throw new IOException("HTTP " + response.code() + ": " + responseText);
+                throw new IOException(extractErrorMessage(response.code(), responseText));
             }
             return responseText;
         }
+    }
+
+    private String extractErrorMessage(int httpCode, String responseText) {
+        String normalized = responseText == null ? "" : responseText.trim();
+        if (!normalized.isEmpty()) {
+            try {
+                JSONObject jsonObject = new JSONObject(normalized);
+                String detail = jsonObject.optString("detail", "").trim();
+                if (!TextUtils.isEmpty(detail)) {
+                    return detail;
+                }
+                JSONObject data = jsonObject.optJSONObject("data");
+                if (data != null) {
+                    detail = data.optString("detail", "").trim();
+                    if (!TextUtils.isEmpty(detail)) {
+                        return detail;
+                    }
+                }
+            } catch (JSONException ignored) {
+                // Fall back to the raw response text below.
+            }
+        }
+        if (TextUtils.isEmpty(normalized)) {
+            return "HTTP " + httpCode;
+        }
+        return "HTTP " + httpCode + ": " + normalized;
     }
 
     private SharedRouteSummary parseSharedRouteSummary(JSONObject jsonObject) throws IOException {
@@ -288,6 +508,95 @@ public final class ShareApiClient {
         );
     }
 
+    private AppClientConfig parseAppClientConfig(JSONObject jsonObject) throws IOException {
+        if (jsonObject == null) {
+            throw new IOException("Client config payload is empty");
+        }
+        return new AppClientConfig(
+                optString(jsonObject, "noticeTitle", "title"),
+                optString(jsonObject, "noticeMessage", "message"),
+                optString(jsonObject, "qqGroupNumber", "groupNumber", "qqGroup"),
+                optString(jsonObject, "bilibiliText", "bilibiliLabel"),
+                optString(jsonObject, "bilibiliUrl", "bilibiliLink")
+        );
+    }
+
+    private InternalAccountProfile parseInternalAccount(JSONObject jsonObject) throws IOException {
+        if (jsonObject == null) {
+            throw new IOException("Internal account payload is empty");
+        }
+        return new InternalAccountProfile(
+                optString(jsonObject, "id"),
+                optString(jsonObject, "username"),
+                optString(jsonObject, "remark"),
+                optString(jsonObject, "status")
+        );
+    }
+
+    private UsageTipSummary parseUsageTipSummary(JSONObject jsonObject) throws IOException {
+        if (jsonObject == null) {
+            throw new IOException("Usage tip item is empty");
+        }
+        return new UsageTipSummary(
+                optString(jsonObject, "id"),
+                optString(jsonObject, "title"),
+                optString(jsonObject, "excerpt"),
+                optString(jsonObject, "contributorQq", "contributorQQ"),
+                optString(jsonObject, "authorUsername"),
+                optBoolean(jsonObject, "isPublished", "published"),
+                optBoolean(jsonObject, "editable"),
+                optLong(jsonObject, "createdAt", "createTime"),
+                optLong(jsonObject, "updatedAt", "updateTime")
+        );
+    }
+
+    private UsageTipDetail parseUsageTipDetail(JSONObject jsonObject) throws IOException {
+        if (jsonObject == null) {
+            throw new IOException("Usage tip payload is empty");
+        }
+        return new UsageTipDetail(
+                optString(jsonObject, "id"),
+                optString(jsonObject, "title"),
+                optString(jsonObject, "htmlContent"),
+                optString(jsonObject, "plainText"),
+                optString(jsonObject, "contributorQq", "contributorQQ"),
+                optString(jsonObject, "authorAccountId"),
+                optString(jsonObject, "authorUsername"),
+                optBoolean(jsonObject, "isPublished", "published"),
+                optBoolean(jsonObject, "editable"),
+                optLong(jsonObject, "createdAt", "createTime"),
+                optLong(jsonObject, "updatedAt", "updateTime")
+        );
+    }
+
+    private SharedSimulationConfigEntry parseSharedSimulationConfig(JSONObject jsonObject) throws IOException {
+        if (jsonObject == null) {
+            throw new IOException("Simulation config payload is empty");
+        }
+        return new SharedSimulationConfigEntry(
+                optString(jsonObject, "id"),
+                optString(jsonObject, "name"),
+                optString(jsonObject, "mode"),
+                optDouble(jsonObject, "speed"),
+                optDouble(jsonObject, "cadence"),
+                optInt(jsonObject, "loopCount", "loop_count"),
+                optBoolean(jsonObject, "dynamicIntensityEnabled"),
+                optDouble(jsonObject, "intensityVariationRange"),
+                optDouble(jsonObject, "intensityVariationFrequency"),
+                optBoolean(jsonObject, "naturalPathVariationEnabled"),
+                optDouble(jsonObject, "pathVariationAmplitude"),
+                optBoolean(jsonObject, "naturalAltitudeVariationEnabled"),
+                optDouble(jsonObject, "altitudeVariationRange"),
+                optDouble(jsonObject, "altitudeVariationHeightCentimeters"),
+                optDouble(jsonObject, "altitudeVariationProbability"),
+                optDouble(jsonObject, "linkRatioNumerator"),
+                optDouble(jsonObject, "stepsPerMeter"),
+                optString(jsonObject, "authorName"),
+                optLong(jsonObject, "createdAt", "createTime"),
+                optLong(jsonObject, "updatedAt", "updateTime")
+        );
+    }
+
     private String optString(@NonNull JSONObject jsonObject, String... keys) {
         for (String key : keys) {
             if (jsonObject.has(key)) {
@@ -325,6 +634,15 @@ public final class ShareApiClient {
             }
         }
         return 0;
+    }
+
+    private double optDouble(@NonNull JSONObject jsonObject, String... keys) {
+        for (String key : keys) {
+            if (jsonObject.has(key)) {
+                return jsonObject.optDouble(key, 0d);
+            }
+        }
+        return 0d;
     }
 
     private long optLong(@NonNull JSONObject jsonObject, String... keys) {

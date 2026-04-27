@@ -9,6 +9,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     app_name: str = "SchoolRun Shared Backend"
@@ -32,6 +33,22 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "change_me_admin"
     admin_session_secret: str = "change_me_session_secret"
+    admin_baidu_maps_ak: str = ""
+    mobile_auth_secret: str = "change_me_mobile_auth_secret"
+    mobile_auth_max_age_seconds: int = 60 * 60 * 24 * 30
+    internal_auth_variant: str = "schoolrun_toolbox"
+    auth_wrong_password_window_seconds: int = 10 * 60
+    auth_wrong_password_max_attempts: int = 5
+    auth_wrong_password_first_ban_seconds: int = 24 * 60 * 60
+    auth_wrong_device_max_attempts: int = 3
+    client_notice_title: str = "使用说明"
+    client_notice_message: str = (
+        "本软件为完全免费开源软件，基于影梭打造，仅供学习交流，禁止盈利，"
+        "目前仅测试过阳光校园跑，其他的你们自行测试，QQ群号：951300122"
+    )
+    client_notice_group_number: str = "951300122"
+    client_bilibili_text: str = "此为 bilibili UP 主开发的免费开源软件"
+    client_bilibili_url: str = "https://space.bilibili.com/1492911803?spm_id_from=333.1007.0.0"
 
     @property
     def cors_allow_origins(self) -> list[str]:

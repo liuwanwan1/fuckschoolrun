@@ -25,13 +25,10 @@ import com.acooldog.toolbox.config.SavedNfcConfig;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.textfield.TextInputEditText;
 import com.acooldog.toolbox.config.SimulationPrefsStore;
-import com.acooldog.toolbox.nfc.data.AndroidNfcPayloadDispatcher;
 import com.acooldog.toolbox.nfc.data.AndroidNfcPayloadReader;
 import com.acooldog.toolbox.nfc.domain.NfcPayload;
-import com.acooldog.toolbox.nfc.domain.NfcPayloadDispatchResult;
 import com.acooldog.toolbox.nfc.domain.NfcPayloadParser;
 import com.acooldog.toolbox.nfc.domain.ReadNfcPayloadUseCase;
-import com.acooldog.toolbox.nfc.domain.SendNfcPayloadUseCase;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.utils.GoUtils;
@@ -54,7 +51,6 @@ public class NfcToolsActivity extends BaseActivity {
     private NfcAdapter nfcAdapter;
     private PendingIntent foregroundDispatchIntent;
     private ReadNfcPayloadUseCase readNfcPayloadUseCase;
-    private SendNfcPayloadUseCase sendNfcPayloadUseCase;
     private TextView hardwareStatusView;
     private TextView mockStatusView;
     private TextInputEditText urlInput;
@@ -73,8 +69,6 @@ public class NfcToolsActivity extends BaseActivity {
                 new AndroidNfcPayloadReader(),
                 new NfcPayloadParser()
         );
-        sendNfcPayloadUseCase = new SendNfcPayloadUseCase(new AndroidNfcPayloadDispatcher());
-
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         foregroundDispatchIntent = createForegroundDispatchIntent();
         ioExecutor = Executors.newSingleThreadExecutor();
@@ -229,23 +223,13 @@ public class NfcToolsActivity extends BaseActivity {
             return;
         }
 
-        NfcPayloadDispatchResult result = sendNfcPayloadUseCase.send(
-                this,
-                new NfcPayload(url, packageName, currentPayloadSource)
-        );
         persistNfcConfig();
-        if (result.getStatus() == NfcPayloadDispatchResult.Status.NDEF_SENT) {
-            setStatus(mockStatusView, getString(R.string.nfc_mock_sent), false);
-        } else if (result.getStatus() == NfcPayloadDispatchResult.Status.FALLBACK_VIEW_SENT) {
-            setStatus(mockStatusView, getString(R.string.nfc_mock_opened_browser), false);
-        } else {
-            String detail = result.getDetail();
-            setStatus(
-                    mockStatusView,
-                    getString(R.string.nfc_mock_failed) + (TextUtils.isEmpty(detail) ? "" : detail),
-                    true
-            );
-        }
+        Intent intent = new Intent(this, RouteRunActivity.class);
+        intent.putExtra(RouteRunActivity.EXTRA_PENDING_NFC_URL, url);
+        intent.putExtra(RouteRunActivity.EXTRA_PENDING_NFC_PACKAGE, packageName);
+        intent.putExtra(RouteRunActivity.EXTRA_PENDING_NFC_SOURCE, currentPayloadSource);
+        startActivity(intent);
+        setStatus(mockStatusView, getString(R.string.nfc_mock_waiting_route_start), false);
     }
 
     private void showShareDialog() {
