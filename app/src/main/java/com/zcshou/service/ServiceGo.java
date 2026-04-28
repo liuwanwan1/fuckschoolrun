@@ -32,6 +32,7 @@ import com.elvishew.xlog.XLog;
 import com.acooldog.toolbox.MainActivity;
 import com.acooldog.toolbox.R;
 import com.acooldog.toolbox.config.SimulationPrefsStore;
+import com.acooldog.toolbox.location.MockLocationPermissionManager;
 import com.acooldog.toolbox.location.NmeaInjector;
 
 public class ServiceGo extends Service {
@@ -60,9 +61,11 @@ public class ServiceGo extends Service {
     private int signalQuality = SimulationPrefsStore.DEFAULT_NMEA_SIGNAL_QUALITY;
     private float hdop = SimulationPrefsStore.DEFAULT_NMEA_HDOP;
     private long updateIntervalMillis = SimulationPrefsStore.DEFAULT_LOCATION_UPDATE_INTERVAL_MS;
+    private boolean networkSimulationEnabled = SimulationPrefsStore.DEFAULT_NETWORK_SIMULATION_ENABLED;
 
     private LocationManager mLocManager;
     private SimulationPrefsStore simulationPrefsStore;
+    private MockLocationPermissionManager permissionManager;
     private HandlerThread mLocHandlerThread;
     private Handler mLocHandler;
     private PowerManager.WakeLock mWakeLock;
@@ -85,7 +88,11 @@ public class ServiceGo extends Service {
 
         mLocManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
         simulationPrefsStore = new SimulationPrefsStore(getApplicationContext());
+        permissionManager = new MockLocationPermissionManager(this);
         reloadNmeaSimulationSettings();
+        if (!permissionManager.isMockLocationEnabled(this)) {
+            XLog.w("SERVICEGO: mock location permission is not enabled");
+        }
 
         removeTestProviderNetwork();
         addTestProviderNetwork();
@@ -204,8 +211,7 @@ public class ServiceGo extends Service {
                     return;
                 }
                 reloadNmeaSimulationSettings();
-                setLocationNetwork();
-                setLocationGPS();
+                injectEnhancedLocation(new LocationPoint(mCurLng, mCurLat, mCurAlt, (float) mSpeed, mCurBea));
                 sendEmptyMessageDelayed(HANDLER_MSG_ID, updateIntervalMillis);
             }
         };
@@ -285,6 +291,7 @@ public class ServiceGo extends Service {
         signalQuality = simulationPrefsStore.getNmeaSignalQuality();
         hdop = simulationPrefsStore.getNmeaHdop();
         updateIntervalMillis = simulationPrefsStore.getLocationUpdateIntervalMillis();
+        networkSimulationEnabled = simulationPrefsStore.isNetworkSimulationEnabled();
     }
 
     private void removeTestProviderGPS() {
@@ -336,26 +343,39 @@ public class ServiceGo extends Service {
         }
     }
 
-    private void setLocationGPS() {
+    private void injectEnhancedLocation(@NonNull LocationPoint point) {
+        if (mLocManager == null) {
+            return;
+        }
+        if (permissionManager != null && !permissionManager.isMockLocationEnabled(this)) {
+            XLog.e("SERVICEGO: mock location permission is not enabled, skip location injection");
+            return;
+        }
+        injectGPSLocation(point);
+        if (isNetworkSimulationEnabled()) {
+            injectNetworkLocation(point);
+        }
+    }
+
+    private boolean isNetworkSimulationEnabled() {
+        return networkSimulationEnabled;
+    }
+
+    private void injectGPSLocation(@NonNull LocationPoint point) {
         try {
-            Location loc = new Location(LocationManager.GPS_PROVIDER);
-            loc.setAccuracy(hdop * 2.5f);
-            loc.setAltitude(mCurAlt);
-            loc.setBearing(mCurBea);
-            loc.setLatitude(mCurLat);
-            loc.setLongitude(mCurLng);
-            loc.setTime(System.currentTimeMillis());
-            loc.setSpeed((float) mSpeed);
-            loc.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+            Location loc = createLocation(LocationManager.GPS_PROVIDER, point, hdop * 2.5f);
             Bundle bundle = new Bundle();
             bundle.putInt("satellites", satelliteCount);
             bundle.putInt("signalQuality", signalQuality);
             bundle.putFloat("hdop", hdop);
+            bundle.putString("source", LocationManager.GPS_PROVIDER);
             loc.setExtras(bundle);
             NmeaInjector.attachGeneratedNmea(loc, satelliteCount, signalQuality, hdop);
             mLocManager.setTestProviderLocation(LocationManager.GPS_PROVIDER, loc);
+        } catch (SecurityException exception) {
+            XLog.e("SERVICEGO: ERROR - injectGPSLocation, mock location permission denied");
         } catch (Exception exception) {
-            XLog.e("SERVICEGO: ERROR - setLocationGPS");
+            XLog.e("SERVICEGO: ERROR - injectGPSLocation");
         }
     }
 
@@ -408,21 +428,32 @@ public class ServiceGo extends Service {
         }
     }
 
-    private void setLocationNetwork() {
+    private void injectNetworkLocation(@NonNull LocationPoint point) {
         try {
-            Location loc = new Location(LocationManager.NETWORK_PROVIDER);
-            loc.setAccuracy(Criteria.ACCURACY_COARSE);
-            loc.setAltitude(mCurAlt);
-            loc.setBearing(mCurBea);
-            loc.setLatitude(mCurLat);
-            loc.setLongitude(mCurLng);
-            loc.setTime(System.currentTimeMillis());
-            loc.setSpeed((float) mSpeed);
-            loc.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+            Location loc = createLocation(LocationManager.NETWORK_PROVIDER, point, Math.max(25f, hdop * 10f));
+            Bundle bundle = new Bundle();
+            bundle.putString("source", LocationManager.NETWORK_PROVIDER);
+            loc.setExtras(bundle);
             mLocManager.setTestProviderLocation(LocationManager.NETWORK_PROVIDER, loc);
+        } catch (SecurityException exception) {
+            XLog.e("SERVICEGO: ERROR - injectNetworkLocation, mock location permission denied");
         } catch (Exception exception) {
-            XLog.e("SERVICEGO: ERROR - setLocationNetwork");
+            XLog.e("SERVICEGO: ERROR - injectNetworkLocation");
         }
+    }
+
+    @NonNull
+    private Location createLocation(@NonNull String provider, @NonNull LocationPoint point, float accuracyMeters) {
+        Location loc = new Location(provider);
+        loc.setAccuracy(accuracyMeters);
+        loc.setAltitude(point.altitude);
+        loc.setBearing(point.bearing);
+        loc.setLatitude(point.latitude);
+        loc.setLongitude(point.longitude);
+        loc.setTime(System.currentTimeMillis());
+        loc.setSpeed(point.speed);
+        loc.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+        return loc;
     }
 
     public class ServiceGoBinder extends Binder {
@@ -450,6 +481,22 @@ public class ServiceGo extends Service {
         @Override
         public void onLocationChanged(@NonNull Location location) {
             // Keep GNSS active without overriding the injected mock location.
+        }
+    }
+
+    private static final class LocationPoint {
+        private final double longitude;
+        private final double latitude;
+        private final double altitude;
+        private final float speed;
+        private final float bearing;
+
+        private LocationPoint(double longitude, double latitude, double altitude, float speed, float bearing) {
+            this.longitude = longitude;
+            this.latitude = latitude;
+            this.altitude = altitude;
+            this.speed = speed;
+            this.bearing = bearing;
         }
     }
 }

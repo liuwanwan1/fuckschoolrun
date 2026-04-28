@@ -180,6 +180,13 @@
                     android:layout_height="wrap_content"
                     android:text="@string/route_nmea_settings_title" />
 
+                <Switch
+                    android:id="@+id/switch_dialog_network_simulation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/route_network_simulation_label" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

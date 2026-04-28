@@ -186,6 +186,7 @@ public class RouteRunActivity extends BaseActivity {
     private TextView settingsHdopValueView;
     private SeekBar settingsUpdateIntervalSeekBar;
     private TextView settingsUpdateIntervalValueView;
+    private Switch settingsNetworkSimulationSwitch;
     private Switch settingsDynamicIntensitySwitch;
     private EditText settingsIntensityRangeInput;
     private SeekBar settingsIntensityFrequencySeekBar;
@@ -2045,6 +2046,7 @@ public class RouteRunActivity extends BaseActivity {
         settingsHdopValueView = dialogView.findViewById(R.id.tv_dialog_hdop_value);
         settingsUpdateIntervalSeekBar = dialogView.findViewById(R.id.seek_dialog_update_interval);
         settingsUpdateIntervalValueView = dialogView.findViewById(R.id.tv_dialog_update_interval_value);
+        settingsNetworkSimulationSwitch = dialogView.findViewById(R.id.switch_dialog_network_simulation);
         settingsDynamicIntensitySwitch = dialogView.findViewById(R.id.switch_dialog_dynamic_intensity);
         settingsIntensityRangeInput = dialogView.findViewById(R.id.et_dialog_intensity_range);
         settingsIntensityFrequencySeekBar = dialogView.findViewById(R.id.seek_dialog_intensity_frequency);
@@ -2082,6 +2084,7 @@ public class RouteRunActivity extends BaseActivity {
         updateHdopValue(settingsHdopSeekBar.getProgress());
         settingsUpdateIntervalSeekBar.setProgress(updateIntervalToProgress(prefsStore.getLocationUpdateIntervalMillis()));
         updateUpdateIntervalValue(settingsUpdateIntervalSeekBar.getProgress());
+        settingsNetworkSimulationSwitch.setChecked(prefsStore.isNetworkSimulationEnabled());
         settingsDynamicIntensitySwitch.setChecked(speedFloatCheckBox.isChecked());
         settingsIntensityRangeInput.setText(prefsStore.getRouteIntensityVariationRange());
         settingsIntensityFrequencySeekBar.setProgress(
@@ -2260,6 +2263,7 @@ public class RouteRunActivity extends BaseActivity {
             settingsHdopValueView = null;
             settingsUpdateIntervalSeekBar = null;
             settingsUpdateIntervalValueView = null;
+            settingsNetworkSimulationSwitch = null;
             settingsDynamicIntensitySwitch = null;
             settingsIntensityRangeInput = null;
             settingsIntensityFrequencySeekBar = null;
@@ -2338,6 +2342,9 @@ public class RouteRunActivity extends BaseActivity {
             int updateIntervalMillis = settingsUpdateIntervalSeekBar == null
                     ? prefsStore.getLocationUpdateIntervalMillis()
                     : updateIntervalProgressToValue(settingsUpdateIntervalSeekBar.getProgress());
+            boolean networkSimulationEnabled = settingsNetworkSimulationSwitch == null
+                    ? prefsStore.isNetworkSimulationEnabled()
+                    : settingsNetworkSimulationSwitch.isChecked();
             if (floatingWindowEnabled && !Settings.canDrawOverlays(getApplicationContext())) {
                 GoUtils.showEnableFloatWindowDialog(this);
                 throw new IllegalArgumentException(getString(R.string.route_floating_window_permission_required));
@@ -2355,7 +2362,13 @@ public class RouteRunActivity extends BaseActivity {
                     altitudeVariationProbability
             );
             prefsStore.saveRouteFloatingWindowSettings(floatingWindowEnabled, floatingWindowScale, floatingWindowButtonSize);
-            prefsStore.saveNmeaSettings(satelliteCount, signalQuality, hdop, updateIntervalMillis);
+            prefsStore.saveNmeaSettings(
+                    satelliteCount,
+                    signalQuality,
+                    hdop,
+                    updateIntervalMillis,
+                    networkSimulationEnabled
+            );
             persistSimulationPrefsWithRatio(ratioNumerator);
             applySimulationConfigHotIfPossible();
             if (serviceBinder != null) {

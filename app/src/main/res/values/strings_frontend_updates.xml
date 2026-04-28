@@ -172,5 +172,6 @@
     <string name="route_nmea_update_interval_label">更新间隔:</string>
     <string name="route_nmea_update_interval_default">200ms</string>
     <string name="route_nmea_update_interval_value">%1$dms</string>
+    <string name="route_network_simulation_label">网络定位辅助信号</string>
     <string name="route_settings_letter_nmea">N</string>
 </resources>

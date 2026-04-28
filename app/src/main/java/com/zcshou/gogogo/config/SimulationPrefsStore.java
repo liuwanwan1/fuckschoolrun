@@ -24,6 +24,7 @@ public final class SimulationPrefsStore {
     public static final int DEFAULT_LOCATION_UPDATE_INTERVAL_MS = 200;
     public static final int MIN_LOCATION_UPDATE_INTERVAL_MS = 100;
     public static final int MAX_LOCATION_UPDATE_INTERVAL_MS = 2000;
+    public static final boolean DEFAULT_NETWORK_SIMULATION_ENABLED = true;
 
     private static final String PREFS_NAME = "simulation_prefs_store";
     private static final String KEY_ROUTE_MODE = "route_mode";
@@ -52,6 +53,7 @@ public final class SimulationPrefsStore {
     private static final String KEY_NMEA_SIGNAL_QUALITY = "nmea_signal_quality";
     private static final String KEY_NMEA_HDOP = "nmea_hdop";
     private static final String KEY_LOCATION_UPDATE_INTERVAL_MS = "location_update_interval_ms";
+    private static final String KEY_NETWORK_SIMULATION_ENABLED = "network_simulation_enabled";
     private static final String KEY_NFC_URL = "nfc_url";
     private static final String KEY_NFC_PACKAGE = "nfc_package";
     private static final String KEY_NFC_SOURCE = "nfc_source";
@@ -192,6 +194,10 @@ public final class SimulationPrefsStore {
         );
     }
 
+    public boolean isNetworkSimulationEnabled() {
+        return preferences.getBoolean(KEY_NETWORK_SIMULATION_ENABLED, DEFAULT_NETWORK_SIMULATION_ENABLED);
+    }
+
     public void saveRouteConfig(
             String routeMode,
             String speed,
@@ -271,7 +277,13 @@ public final class SimulationPrefsStore {
                 .apply();
     }
 
-    public void saveNmeaSettings(int satelliteCount, int signalQuality, float hdop, int updateIntervalMillis) {
+    public void saveNmeaSettings(
+            int satelliteCount,
+            int signalQuality,
+            float hdop,
+            int updateIntervalMillis,
+            boolean networkSimulationEnabled
+    ) {
         preferences.edit()
                 .putInt(
                         KEY_NMEA_SATELLITE_COUNT,
@@ -290,6 +302,7 @@ public final class SimulationPrefsStore {
                                 MAX_LOCATION_UPDATE_INTERVAL_MS
                         )
                 )
+                .putBoolean(KEY_NETWORK_SIMULATION_ENABLED, networkSimulationEnabled)
                 .apply();
     }
 
