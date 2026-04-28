@@ -9,7 +9,11 @@ import androidx.annotation.Nullable;
 
 public final class NmeaInjector {
     public static final String EXTRA_NMEA = "nmea";
-    public static final int DEFAULT_SATELLITE_COUNT = 7;
+    public static final int DEFAULT_SATELLITE_COUNT = 8;
+    public static final int DEFAULT_SIGNAL_QUALITY = CompleteNmeaGenerator.SIGNAL_QUALITY_STRONG;
+    public static final float DEFAULT_HDOP = CompleteNmeaGenerator.DEFAULT_HDOP;
+
+    private static final CompleteNmeaGenerator COMPLETE_NMEA_GENERATOR = new CompleteNmeaGenerator();
 
     private NmeaInjector() {
     }
@@ -19,17 +23,28 @@ public final class NmeaInjector {
     }
 
     public static void attachGeneratedNmea(@NonNull Location location, int satelliteCount) {
-        String nmea = NmeaGenerator.generateStandardSentences(
+        attachGeneratedNmea(location, satelliteCount, DEFAULT_SIGNAL_QUALITY, DEFAULT_HDOP);
+    }
+
+    public static void attachGeneratedNmea(
+            @NonNull Location location,
+            int satelliteCount,
+            int signalQuality,
+            float hdop
+    ) {
+        String nmea = COMPLETE_NMEA_GENERATOR.generateCompleteNmea(
                 location.getLatitude(),
                 location.getLongitude(),
                 location.hasAltitude() ? location.getAltitude() : 0d,
-                location.hasSpeed() ? location.getSpeed() : 0d,
-                location.hasBearing() ? location.getBearing() : 0d,
-                location.getTime() > 0L ? location.getTime() : System.currentTimeMillis(),
-                satelliteCount
+                location.hasSpeed() ? location.getSpeed() : 0f,
+                location.hasBearing() ? location.getBearing() : 0f,
+                satelliteCount,
+                signalQuality,
+                hdop,
+                location.getTime() > 0L ? location.getTime() : System.currentTimeMillis()
         );
         attachNmea(location, nmea);
-        applyHighPrecisionMetadata(location);
+        applyHighPrecisionMetadata(location, hdop);
     }
 
     public static void attachNmea(@NonNull Location location, @Nullable String nmea) {
@@ -43,13 +58,13 @@ public final class NmeaInjector {
         location.setExtras(extras);
     }
 
-    private static void applyHighPrecisionMetadata(@NonNull Location location) {
+    private static void applyHighPrecisionMetadata(@NonNull Location location, float hdop) {
         if (!location.hasAccuracy()) {
-            location.setAccuracy(1f);
+            location.setAccuracy(CompleteNmeaGenerator.normalizeHdop(hdop) * 2.5f);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!location.hasVerticalAccuracy()) {
-                location.setVerticalAccuracyMeters(1f);
+                location.setVerticalAccuracyMeters(CompleteNmeaGenerator.normalizeHdop(hdop) * 3f);
             }
             if (!location.hasSpeedAccuracy()) {
                 location.setSpeedAccuracyMetersPerSecond(0.1f);

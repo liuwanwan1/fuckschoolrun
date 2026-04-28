@@ -31,6 +31,7 @@ import androidx.core.app.NotificationCompat;
 import com.elvishew.xlog.XLog;
 import com.acooldog.toolbox.MainActivity;
 import com.acooldog.toolbox.R;
+import com.acooldog.toolbox.config.SimulationPrefsStore;
 import com.acooldog.toolbox.location.NmeaInjector;
 
 public class ServiceGo extends Service {
@@ -55,8 +56,13 @@ public class ServiceGo extends Service {
     private float mCurBea = DEFAULT_BEA;
     private double mSpeed = 1.2;
     private boolean isStop = false;
+    private int satelliteCount = SimulationPrefsStore.DEFAULT_NMEA_SATELLITE_COUNT;
+    private int signalQuality = SimulationPrefsStore.DEFAULT_NMEA_SIGNAL_QUALITY;
+    private float hdop = SimulationPrefsStore.DEFAULT_NMEA_HDOP;
+    private long updateIntervalMillis = SimulationPrefsStore.DEFAULT_LOCATION_UPDATE_INTERVAL_MS;
 
     private LocationManager mLocManager;
+    private SimulationPrefsStore simulationPrefsStore;
     private HandlerThread mLocHandlerThread;
     private Handler mLocHandler;
     private PowerManager.WakeLock mWakeLock;
@@ -78,6 +84,8 @@ public class ServiceGo extends Service {
         super.onCreate();
 
         mLocManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
+        simulationPrefsStore = new SimulationPrefsStore(getApplicationContext());
+        reloadNmeaSimulationSettings();
 
         removeTestProviderNetwork();
         addTestProviderNetwork();
@@ -98,6 +106,7 @@ public class ServiceGo extends Service {
             mCurLat = intent.getDoubleExtra(MainActivity.LAT_MSG_ID, DEFAULT_LAT);
             mCurAlt = intent.getDoubleExtra(MainActivity.ALT_MSG_ID, DEFAULT_ALT);
         }
+        reloadNmeaSimulationSettings();
         stopGpsKeepAlive();
         initGpsKeepAlive();
         return START_STICKY;
@@ -191,17 +200,13 @@ public class ServiceGo extends Service {
         mLocHandler = new Handler(mLocHandlerThread.getLooper()) {
             @Override
             public void handleMessage(@NonNull android.os.Message msg) {
-                try {
-                    Thread.sleep(100);
-                    if (!isStop) {
-                        setLocationNetwork();
-                        setLocationGPS();
-                        sendEmptyMessage(HANDLER_MSG_ID);
-                    }
-                } catch (InterruptedException exception) {
-                    XLog.e("SERVICEGO: ERROR - handleMessage");
-                    Thread.currentThread().interrupt();
+                if (isStop) {
+                    return;
                 }
+                reloadNmeaSimulationSettings();
+                setLocationNetwork();
+                setLocationGPS();
+                sendEmptyMessageDelayed(HANDLER_MSG_ID, updateIntervalMillis);
             }
         };
 
@@ -272,6 +277,16 @@ public class ServiceGo extends Service {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    private void reloadNmeaSimulationSettings() {
+        if (simulationPrefsStore == null) {
+            return;
+        }
+        satelliteCount = simulationPrefsStore.getNmeaSatelliteCount();
+        signalQuality = simulationPrefsStore.getNmeaSignalQuality();
+        hdop = simulationPrefsStore.getNmeaHdop();
+        updateIntervalMillis = simulationPrefsStore.getLocationUpdateIntervalMillis();
+    }
+
     private void removeTestProviderGPS() {
         try {
             if (mLocManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -324,7 +339,7 @@ public class ServiceGo extends Service {
     private void setLocationGPS() {
         try {
             Location loc = new Location(LocationManager.GPS_PROVIDER);
-            loc.setAccuracy(Criteria.ACCURACY_FINE);
+            loc.setAccuracy(hdop * 2.5f);
             loc.setAltitude(mCurAlt);
             loc.setBearing(mCurBea);
             loc.setLatitude(mCurLat);
@@ -333,9 +348,11 @@ public class ServiceGo extends Service {
             loc.setSpeed((float) mSpeed);
             loc.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
             Bundle bundle = new Bundle();
-            bundle.putInt("satellites", 7);
+            bundle.putInt("satellites", satelliteCount);
+            bundle.putInt("signalQuality", signalQuality);
+            bundle.putFloat("hdop", hdop);
             loc.setExtras(bundle);
-            NmeaInjector.attachGeneratedNmea(loc, 7);
+            NmeaInjector.attachGeneratedNmea(loc, satelliteCount, signalQuality, hdop);
             mLocManager.setTestProviderLocation(LocationManager.GPS_PROVIDER, loc);
         } catch (Exception exception) {
             XLog.e("SERVICEGO: ERROR - setLocationGPS");
@@ -415,12 +432,17 @@ public class ServiceGo extends Service {
 
         public void setMotion(double lng, double lat, double alt, float speed, float bearing) {
             mLocHandler.removeMessages(HANDLER_MSG_ID);
+            reloadNmeaSimulationSettings();
             mCurLng = lng;
             mCurLat = lat;
             mCurAlt = alt;
             mSpeed = speed;
             mCurBea = bearing;
             mLocHandler.sendEmptyMessage(HANDLER_MSG_ID);
+        }
+
+        public void reloadSimulationSettings() {
+            reloadNmeaSimulationSettings();
         }
     }
 

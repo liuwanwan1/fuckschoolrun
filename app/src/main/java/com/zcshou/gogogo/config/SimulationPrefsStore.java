@@ -12,6 +12,18 @@ import java.util.List;
 public final class SimulationPrefsStore {
     public static final String ROUTE_MODE_SPEED = "speed";
     public static final String ROUTE_MODE_CADENCE = "cadence";
+    public static final int DEFAULT_NMEA_SATELLITE_COUNT = 8;
+    public static final int MIN_NMEA_SATELLITE_COUNT = 1;
+    public static final int MAX_NMEA_SATELLITE_COUNT = 12;
+    public static final int DEFAULT_NMEA_SIGNAL_QUALITY = 2;
+    public static final int MIN_NMEA_SIGNAL_QUALITY = 0;
+    public static final int MAX_NMEA_SIGNAL_QUALITY = 2;
+    public static final float DEFAULT_NMEA_HDOP = 1.5f;
+    public static final float MIN_NMEA_HDOP = 0.5f;
+    public static final float MAX_NMEA_HDOP = 3.0f;
+    public static final int DEFAULT_LOCATION_UPDATE_INTERVAL_MS = 200;
+    public static final int MIN_LOCATION_UPDATE_INTERVAL_MS = 100;
+    public static final int MAX_LOCATION_UPDATE_INTERVAL_MS = 2000;
 
     private static final String PREFS_NAME = "simulation_prefs_store";
     private static final String KEY_ROUTE_MODE = "route_mode";
@@ -36,6 +48,10 @@ public final class SimulationPrefsStore {
     private static final String KEY_ROUTE_FLOATING_WINDOW_ENABLED = "route_floating_window_enabled";
     private static final String KEY_ROUTE_FLOATING_WINDOW_SCALE = "route_floating_window_scale";
     private static final String KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE = "route_floating_window_button_size";
+    private static final String KEY_NMEA_SATELLITE_COUNT = "nmea_satellite_count";
+    private static final String KEY_NMEA_SIGNAL_QUALITY = "nmea_signal_quality";
+    private static final String KEY_NMEA_HDOP = "nmea_hdop";
+    private static final String KEY_LOCATION_UPDATE_INTERVAL_MS = "location_update_interval_ms";
     private static final String KEY_NFC_URL = "nfc_url";
     private static final String KEY_NFC_PACKAGE = "nfc_package";
     private static final String KEY_NFC_SOURCE = "nfc_source";
@@ -144,6 +160,38 @@ public final class SimulationPrefsStore {
         return clampFloatingButtonSize(preferences.getFloat(KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE, 44f));
     }
 
+    public int getNmeaSatelliteCount() {
+        return clampInt(
+                preferences.getInt(KEY_NMEA_SATELLITE_COUNT, DEFAULT_NMEA_SATELLITE_COUNT),
+                MIN_NMEA_SATELLITE_COUNT,
+                MAX_NMEA_SATELLITE_COUNT
+        );
+    }
+
+    public int getNmeaSignalQuality() {
+        return clampInt(
+                preferences.getInt(KEY_NMEA_SIGNAL_QUALITY, DEFAULT_NMEA_SIGNAL_QUALITY),
+                MIN_NMEA_SIGNAL_QUALITY,
+                MAX_NMEA_SIGNAL_QUALITY
+        );
+    }
+
+    public float getNmeaHdop() {
+        return clampFloat(
+                preferences.getFloat(KEY_NMEA_HDOP, DEFAULT_NMEA_HDOP),
+                MIN_NMEA_HDOP,
+                MAX_NMEA_HDOP
+        );
+    }
+
+    public int getLocationUpdateIntervalMillis() {
+        return clampInt(
+                preferences.getInt(KEY_LOCATION_UPDATE_INTERVAL_MS, DEFAULT_LOCATION_UPDATE_INTERVAL_MS),
+                MIN_LOCATION_UPDATE_INTERVAL_MS,
+                MAX_LOCATION_UPDATE_INTERVAL_MS
+        );
+    }
+
     public void saveRouteConfig(
             String routeMode,
             String speed,
@@ -220,6 +268,28 @@ public final class SimulationPrefsStore {
                 .putBoolean(KEY_ROUTE_FLOATING_WINDOW_ENABLED, enabled)
                 .putFloat(KEY_ROUTE_FLOATING_WINDOW_SCALE, clampFloatingScale(scale))
                 .putFloat(KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE, clampFloatingButtonSize(buttonSizeDp))
+                .apply();
+    }
+
+    public void saveNmeaSettings(int satelliteCount, int signalQuality, float hdop, int updateIntervalMillis) {
+        preferences.edit()
+                .putInt(
+                        KEY_NMEA_SATELLITE_COUNT,
+                        clampInt(satelliteCount, MIN_NMEA_SATELLITE_COUNT, MAX_NMEA_SATELLITE_COUNT)
+                )
+                .putInt(
+                        KEY_NMEA_SIGNAL_QUALITY,
+                        clampInt(signalQuality, MIN_NMEA_SIGNAL_QUALITY, MAX_NMEA_SIGNAL_QUALITY)
+                )
+                .putFloat(KEY_NMEA_HDOP, clampFloat(hdop, MIN_NMEA_HDOP, MAX_NMEA_HDOP))
+                .putInt(
+                        KEY_LOCATION_UPDATE_INTERVAL_MS,
+                        clampInt(
+                                updateIntervalMillis,
+                                MIN_LOCATION_UPDATE_INTERVAL_MS,
+                                MAX_LOCATION_UPDATE_INTERVAL_MS
+                        )
+                )
                 .apply();
     }
 
@@ -328,6 +398,17 @@ public final class SimulationPrefsStore {
 
     private float clampFloatingButtonSize(float value) {
         return Math.max(32f, Math.min(72f, value));
+    }
+
+    private int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private float clampFloat(float value, float min, float max) {
+        if (Float.isNaN(value) || Float.isInfinite(value)) {
+            return DEFAULT_NMEA_HDOP;
+        }
+        return Math.max(min, Math.min(max, value));
     }
 
     private String normalizeRouteMode(String routeMode) {
