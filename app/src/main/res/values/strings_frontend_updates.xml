@@ -158,4 +158,19 @@
     <string name="route_edit_selected_click_hint">已选中第 %1$d 个顶点，再点一次可取消选择；点击地图可移动该顶点。</string>
     <string name="route_live_edit_hint_pick_vertex_or_add">请点击要移动的顶点，或点击路线中无顶点的位置新增顶点。</string>
     <string name="route_live_edit_hint_move_vertex_click">已选中第 %1$d 个顶点，再点一次可取消选择；点击地图可移动该顶点。</string>
+    <string name="route_nmea_settings_title">NMEA 定位信号</string>
+    <string name="route_nmea_satellite_label">卫星数量:</string>
+    <string name="route_nmea_satellite_default">8颗</string>
+    <string name="route_nmea_satellite_value">%1$d颗</string>
+    <string name="route_nmea_signal_quality_label">信号质量:</string>
+    <string name="route_nmea_signal_quality_strong">强信号</string>
+    <string name="route_nmea_signal_quality_medium">中等信号</string>
+    <string name="route_nmea_signal_quality_weak">弱信号</string>
+    <string name="route_nmea_hdop_label">定位精度:</string>
+    <string name="route_nmea_hdop_default">HDOP: 1.5</string>
+    <string name="route_nmea_hdop_value">HDOP: %1$.1f</string>
+    <string name="route_nmea_update_interval_label">更新间隔:</string>
+    <string name="route_nmea_update_interval_default">200ms</string>
+    <string name="route_nmea_update_interval_value">%1$dms</string>
+    <string name="route_settings_letter_nmea">N</string>
 </resources>

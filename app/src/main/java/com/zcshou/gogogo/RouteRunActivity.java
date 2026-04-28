@@ -44,6 +44,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.LinearLayout;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
@@ -178,6 +179,13 @@ public class RouteRunActivity extends BaseActivity {
     private EditText settingsLinkRatioRightInput;
     private EditText settingsStepsPerMeterInput;
     private EditText settingsLoopInput;
+    private SeekBar settingsSatelliteSeekBar;
+    private TextView settingsSatelliteValueView;
+    private RadioGroup settingsSignalQualityGroup;
+    private SeekBar settingsHdopSeekBar;
+    private TextView settingsHdopValueView;
+    private SeekBar settingsUpdateIntervalSeekBar;
+    private TextView settingsUpdateIntervalValueView;
     private Switch settingsDynamicIntensitySwitch;
     private EditText settingsIntensityRangeInput;
     private SeekBar settingsIntensityFrequencySeekBar;
@@ -2030,6 +2038,13 @@ public class RouteRunActivity extends BaseActivity {
         settingsLinkRatioRightInput = dialogView.findViewById(R.id.et_dialog_link_ratio_right);
         settingsStepsPerMeterInput = dialogView.findViewById(R.id.et_dialog_steps_per_meter);
         settingsLoopInput = dialogView.findViewById(R.id.et_dialog_loop_count);
+        settingsSatelliteSeekBar = dialogView.findViewById(R.id.seek_dialog_satellite);
+        settingsSatelliteValueView = dialogView.findViewById(R.id.tv_dialog_satellite_value);
+        settingsSignalQualityGroup = dialogView.findViewById(R.id.rg_dialog_signal_quality);
+        settingsHdopSeekBar = dialogView.findViewById(R.id.seek_dialog_hdop);
+        settingsHdopValueView = dialogView.findViewById(R.id.tv_dialog_hdop_value);
+        settingsUpdateIntervalSeekBar = dialogView.findViewById(R.id.seek_dialog_update_interval);
+        settingsUpdateIntervalValueView = dialogView.findViewById(R.id.tv_dialog_update_interval_value);
         settingsDynamicIntensitySwitch = dialogView.findViewById(R.id.switch_dialog_dynamic_intensity);
         settingsIntensityRangeInput = dialogView.findViewById(R.id.et_dialog_intensity_range);
         settingsIntensityFrequencySeekBar = dialogView.findViewById(R.id.seek_dialog_intensity_frequency);
@@ -2060,6 +2075,13 @@ public class RouteRunActivity extends BaseActivity {
         settingsLinkRatioRightInput.setText(speedInput.getText() == null ? "" : speedInput.getText().toString().trim());
         settingsStepsPerMeterInput.setText(prefsStore.getRouteStepsPerMeter());
         settingsLoopInput.setText(loopInput.getText() == null ? "" : loopInput.getText().toString().trim());
+        settingsSatelliteSeekBar.setProgress(prefsStore.getNmeaSatelliteCount() - 1);
+        updateSatelliteValue(settingsSatelliteSeekBar.getProgress());
+        settingsSignalQualityGroup.check(signalQualityToButtonId(prefsStore.getNmeaSignalQuality()));
+        settingsHdopSeekBar.setProgress(Math.round(prefsStore.getNmeaHdop() * 10f));
+        updateHdopValue(settingsHdopSeekBar.getProgress());
+        settingsUpdateIntervalSeekBar.setProgress(updateIntervalToProgress(prefsStore.getLocationUpdateIntervalMillis()));
+        updateUpdateIntervalValue(settingsUpdateIntervalSeekBar.getProgress());
         settingsDynamicIntensitySwitch.setChecked(speedFloatCheckBox.isChecked());
         settingsIntensityRangeInput.setText(prefsStore.getRouteIntensityVariationRange());
         settingsIntensityFrequencySeekBar.setProgress(
@@ -2083,6 +2105,54 @@ public class RouteRunActivity extends BaseActivity {
         pickRingtoneButton.setOnClickListener(v -> showReminderTonePickerDialog());
         uploadSettingsButton.setOnClickListener(v -> promptUploadSimulationSettings());
         downloadSettingsButton.setOnClickListener(v -> loadSharedSimulationSettings());
+        settingsSatelliteSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateSatelliteValue(progress);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+        });
+        settingsHdopSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateHdopValue(progress);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+        });
+        settingsUpdateIntervalSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateUpdateIntervalValue(progress);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                // No-op.
+            }
+        });
         settingsDynamicIntensitySwitch.setOnCheckedChangeListener(
                 (buttonView, isChecked) -> updateSettingsContentState(dynamicIntensityContent, isChecked)
         );
@@ -2183,6 +2253,13 @@ public class RouteRunActivity extends BaseActivity {
             settingsLinkRatioRightInput = null;
             settingsStepsPerMeterInput = null;
             settingsLoopInput = null;
+            settingsSatelliteSeekBar = null;
+            settingsSatelliteValueView = null;
+            settingsSignalQualityGroup = null;
+            settingsHdopSeekBar = null;
+            settingsHdopValueView = null;
+            settingsUpdateIntervalSeekBar = null;
+            settingsUpdateIntervalValueView = null;
             settingsDynamicIntensitySwitch = null;
             settingsIntensityRangeInput = null;
             settingsIntensityFrequencySeekBar = null;
@@ -2251,6 +2328,16 @@ public class RouteRunActivity extends BaseActivity {
             float floatingWindowButtonSize = settingsFloatingWindowButtonSizeSeekBar == null
                     ? prefsStore.getRouteFloatingWindowButtonSizeDp()
                     : settingsFloatingWindowButtonSizeSeekBar.getProgress();
+            int satelliteCount = settingsSatelliteSeekBar == null
+                    ? prefsStore.getNmeaSatelliteCount()
+                    : settingsSatelliteSeekBar.getProgress() + 1;
+            int signalQuality = selectedSignalQuality();
+            float hdop = settingsHdopSeekBar == null
+                    ? prefsStore.getNmeaHdop()
+                    : hdopProgressToValue(settingsHdopSeekBar.getProgress());
+            int updateIntervalMillis = settingsUpdateIntervalSeekBar == null
+                    ? prefsStore.getLocationUpdateIntervalMillis()
+                    : updateIntervalProgressToValue(settingsUpdateIntervalSeekBar.getProgress());
             if (floatingWindowEnabled && !Settings.canDrawOverlays(getApplicationContext())) {
                 GoUtils.showEnableFloatWindowDialog(this);
                 throw new IllegalArgumentException(getString(R.string.route_floating_window_permission_required));
@@ -2268,8 +2355,12 @@ public class RouteRunActivity extends BaseActivity {
                     altitudeVariationProbability
             );
             prefsStore.saveRouteFloatingWindowSettings(floatingWindowEnabled, floatingWindowScale, floatingWindowButtonSize);
+            prefsStore.saveNmeaSettings(satelliteCount, signalQuality, hdop, updateIntervalMillis);
             persistSimulationPrefsWithRatio(ratioNumerator);
             applySimulationConfigHotIfPossible();
+            if (serviceBinder != null) {
+                serviceBinder.reloadSimulationSettings();
+            }
             refreshFloatingWindowSizeFromPrefs();
             if (!floatingWindowEnabled) {
                 hideFloatingWindow();
@@ -2602,6 +2693,81 @@ public class RouteRunActivity extends BaseActivity {
         );
     }
 
+    private void updateSatelliteValue(int progress) {
+        if (settingsSatelliteValueView == null) {
+            return;
+        }
+        int satelliteCount = Math.max(
+                SimulationPrefsStore.MIN_NMEA_SATELLITE_COUNT,
+                Math.min(SimulationPrefsStore.MAX_NMEA_SATELLITE_COUNT, progress + 1)
+        );
+        settingsSatelliteValueView.setText(getString(R.string.route_nmea_satellite_value, satelliteCount));
+    }
+
+    private void updateHdopValue(int progress) {
+        if (settingsHdopValueView == null) {
+            return;
+        }
+        settingsHdopValueView.setText(getString(R.string.route_nmea_hdop_value, hdopProgressToValue(progress)));
+    }
+
+    private void updateUpdateIntervalValue(int progress) {
+        if (settingsUpdateIntervalValueView == null) {
+            return;
+        }
+        settingsUpdateIntervalValueView.setText(
+                getString(R.string.route_nmea_update_interval_value, updateIntervalProgressToValue(progress))
+        );
+    }
+
+    private float hdopProgressToValue(int progress) {
+        float value = progress / 10f;
+        return Math.max(
+                SimulationPrefsStore.MIN_NMEA_HDOP,
+                Math.min(SimulationPrefsStore.MAX_NMEA_HDOP, value)
+        );
+    }
+
+    private int updateIntervalProgressToValue(int progress) {
+        int value = (progress + 1) * 100;
+        return Math.max(
+                SimulationPrefsStore.MIN_LOCATION_UPDATE_INTERVAL_MS,
+                Math.min(SimulationPrefsStore.MAX_LOCATION_UPDATE_INTERVAL_MS, value)
+        );
+    }
+
+    private int updateIntervalToProgress(int updateIntervalMillis) {
+        int clamped = Math.max(
+                SimulationPrefsStore.MIN_LOCATION_UPDATE_INTERVAL_MS,
+                Math.min(SimulationPrefsStore.MAX_LOCATION_UPDATE_INTERVAL_MS, updateIntervalMillis)
+        );
+        return (clamped / 100) - 1;
+    }
+
+    private int signalQualityToButtonId(int signalQuality) {
+        if (signalQuality == SimulationPrefsStore.MIN_NMEA_SIGNAL_QUALITY) {
+            return R.id.rb_dialog_signal_weak;
+        }
+        if (signalQuality == SimulationPrefsStore.DEFAULT_NMEA_SIGNAL_QUALITY) {
+            return R.id.rb_dialog_signal_strong;
+        }
+        return R.id.rb_dialog_signal_medium;
+    }
+
+    private int selectedSignalQuality() {
+        if (settingsSignalQualityGroup == null) {
+            return prefsStore.getNmeaSignalQuality();
+        }
+        int checkedId = settingsSignalQualityGroup.getCheckedRadioButtonId();
+        if (checkedId == R.id.rb_dialog_signal_weak) {
+            return SimulationPrefsStore.MIN_NMEA_SIGNAL_QUALITY;
+        }
+        if (checkedId == R.id.rb_dialog_signal_medium) {
+            return 1;
+        }
+        return SimulationPrefsStore.DEFAULT_NMEA_SIGNAL_QUALITY;
+    }
+
     private void updateAltitudeProbabilityValue(int progress) {
         if (settingsAltitudeProbabilityValueView == null) {
             return;
@@ -2684,6 +2850,11 @@ public class RouteRunActivity extends BaseActivity {
                 dialogView.findViewById(R.id.section_settings_loop),
                 getString(R.string.route_settings_letter_loop),
                 "循环 次数 loop"
+        ));
+        sections.add(new SettingsSection(
+                dialogView.findViewById(R.id.section_settings_nmea),
+                getString(R.string.route_settings_letter_nmea),
+                "NMEA GPS 卫星 信号 精度 更新 interval"
         ));
         sections.add(new SettingsSection(
                 dialogView.findViewById(R.id.section_settings_dynamic),

@@ -169,6 +169,140 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/section_settings_nmea"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/route_nmea_settings_title" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/route_nmea_satellite_label" />
+
+                    <TextView
+                        android:id="@+id/tv_dialog_satellite_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/route_nmea_satellite_default" />
+                </LinearLayout>
+
+                <SeekBar
+                    android:id="@+id/seek_dialog_satellite"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="11"
+                    android:progress="7" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/route_nmea_signal_quality_label" />
+
+                    <RadioGroup
+                        android:id="@+id/rg_dialog_signal_quality"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:orientation="horizontal">
+
+                        <RadioButton
+                            android:id="@+id/rb_dialog_signal_strong"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="@string/route_nmea_signal_quality_strong" />
+
+                        <RadioButton
+                            android:id="@+id/rb_dialog_signal_medium"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/route_nmea_signal_quality_medium" />
+
+                        <RadioButton
+                            android:id="@+id/rb_dialog_signal_weak"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/route_nmea_signal_quality_weak" />
+                    </RadioGroup>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/route_nmea_hdop_label" />
+
+                    <TextView
+                        android:id="@+id/tv_dialog_hdop_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/route_nmea_hdop_default" />
+                </LinearLayout>
+
+                <SeekBar
+                    android:id="@+id/seek_dialog_hdop"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="30"
+                    android:progress="15" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/route_nmea_update_interval_label" />
+
+                    <TextView
+                        android:id="@+id/tv_dialog_update_interval_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/route_nmea_update_interval_default" />
+                </LinearLayout>
+
+                <SeekBar
+                    android:id="@+id/seek_dialog_update_interval"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="19"
+                    android:progress="1" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/section_settings_dynamic"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
