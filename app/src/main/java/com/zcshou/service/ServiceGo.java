@@ -31,6 +31,7 @@ import androidx.core.app.NotificationCompat;
 import com.elvishew.xlog.XLog;
 import com.acooldog.toolbox.MainActivity;
 import com.acooldog.toolbox.R;
+import com.acooldog.toolbox.location.NmeaInjector;
 
 public class ServiceGo extends Service {
     public static final double DEFAULT_LAT = 36.667662;
@@ -334,6 +335,7 @@ public class ServiceGo extends Service {
             Bundle bundle = new Bundle();
             bundle.putInt("satellites", 7);
             loc.setExtras(bundle);
+            NmeaInjector.attachGeneratedNmea(loc, 7);
             mLocManager.setTestProviderLocation(LocationManager.GPS_PROVIDER, loc);
         } catch (Exception exception) {
             XLog.e("SERVICEGO: ERROR - setLocationGPS");
