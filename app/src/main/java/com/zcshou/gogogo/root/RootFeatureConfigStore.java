@@ -58,6 +58,13 @@ public final class RootFeatureConfigStore {
         return config;
     }
 
+    @NonNull
+    public RootFeatureConfig setTargetPackage(@NonNull String targetPackageName) {
+        RootFeatureConfig config = load().withTargetPackage(targetPackageName);
+        save(config);
+        return config;
+    }
+
     public void registerListener(@NonNull OnConfigChangedListener listener) {
         if (!listeners.contains(listener)) {
             listeners.add(listener);

@@ -19,10 +19,11 @@ public final class RootFeatureRuntimeController {
     public RootFeatureRuntimeReport reload(@NonNull RootFeatureConfig config) {
         EnumMap<RootFeature, RootFeatureRuntimeReport.State> states = new EnumMap<>(RootFeature.class);
         EnumMap<RootFeature, String> messages = new EnumMap<>(RootFeature.class);
+        boolean targetSelected = !config.getTargetPackageName().trim().isEmpty();
         for (RootFeature feature : RootFeature.values()) {
             if (!config.isEnabled(feature)) {
                 states.put(feature, RootFeatureRuntimeReport.State.DISABLED);
-                messages.put(feature, "开关关闭");
+                messages.put(feature, "开关关闭。");
                 continue;
             }
             if (feature == RootFeature.FRIDA_DYNAMIC_INJECTION) {
@@ -34,8 +35,18 @@ public final class RootFeatureRuntimeController {
                 continue;
             }
             if (feature.isRestrictedExecution()) {
-                states.put(feature, RootFeatureRuntimeReport.State.BLOCKED);
-                messages.put(feature, "按内测安全边界仅记录请求状态，不执行系统注入、信号伪造、Hook修改或检测绕过。");
+                if (!targetSelected) {
+                    states.put(feature, RootFeatureRuntimeReport.State.BLOCKED);
+                    messages.put(feature, "未选择目标APK，单目标Hook计划未加载。");
+                    continue;
+                }
+                if (!config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)) {
+                    states.put(feature, RootFeatureRuntimeReport.State.BLOCKED);
+                    messages.put(feature, "Frida框架开关关闭，无法进入单目标诊断计划。");
+                    continue;
+                }
+                states.put(feature, RootFeatureRuntimeReport.State.LOADED);
+                messages.put(feature, "已加入目标APK诊断计划，仅在 " + config.getTargetPackageName() + " 进程内生效。");
                 continue;
             }
             states.put(feature, RootFeatureRuntimeReport.State.LOADED);

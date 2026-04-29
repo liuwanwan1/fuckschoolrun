@@ -5,6 +5,9 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -91,6 +94,9 @@ import com.acooldog.toolbox.route.domain.service.LocationSimulationGateway;
 import com.acooldog.toolbox.route.presentation.RouteRunViewModel;
 import com.acooldog.toolbox.root.RootEnvironmentInspector;
 import com.acooldog.toolbox.root.RootEnvironmentReport;
+import com.acooldog.toolbox.root.RootDiagnosticModule;
+import com.acooldog.toolbox.root.RootDiagnosticSessionController;
+import com.acooldog.toolbox.root.RootDiagnosticSessionReport;
 import com.acooldog.toolbox.root.RootFeature;
 import com.acooldog.toolbox.root.RootFeatureConfig;
 import com.acooldog.toolbox.root.RootFeatureConfigStore;
@@ -111,6 +117,7 @@ import com.acooldog.toolbox.utils.MapUtils;
 import com.acooldog.toolbox.utils.SearchSortUtils;
 import com.elvishew.xlog.XLog;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -180,9 +187,11 @@ public class RouteRunActivity extends BaseActivity {
     private RootTestAuditLogger rootAuditLogger;
     private RootFeatureConfigStore rootFeatureConfigStore;
     private RootFeatureRuntimeController rootFeatureRuntimeController;
+    private RootDiagnosticSessionController rootDiagnosticSessionController;
     private RootEnvironmentReport latestRootEnvironmentReport;
     private RootFeatureConfig latestRootFeatureConfig;
     private RootFeatureRuntimeReport latestRootFeatureRuntimeReport;
+    private RootDiagnosticSessionReport latestRootDiagnosticReport;
     private boolean rootTestSessionConfirmed;
     private boolean rootShellAuthorized;
     private boolean suppressRootFeatureSwitchCallbacks;
@@ -208,11 +217,16 @@ public class RouteRunActivity extends BaseActivity {
     private TextView settingsRootDeveloperStatusView;
     private TextView settingsRootMockStatusView;
     private TextView settingsRootHookStatusView;
+    private TextView settingsRootTargetStatusView;
     private TextView settingsRootFeatureConfigStatusView;
+    private TextView settingsRootDiagnosticLogView;
     private TextView settingsRootAuditLogView;
     private Button settingsRootRefreshButton;
     private Button settingsRootConfirmSessionButton;
     private Button settingsRootRequestSuButton;
+    private Button settingsRootPickTargetButton;
+    private Button settingsRootStartDiagnosticButton;
+    private Button settingsRootEndDiagnosticButton;
     private Button settingsRootReloadConfigButton;
     private Button settingsRootGenerateGmButton;
     private Button settingsAlgorithmLabButton;
@@ -389,6 +403,7 @@ public class RouteRunActivity extends BaseActivity {
         rootAuditLogger = new RootTestAuditLogger(getApplicationContext());
         rootFeatureConfigStore = new RootFeatureConfigStore(getApplicationContext());
         rootFeatureRuntimeController = new RootFeatureRuntimeController();
+        rootDiagnosticSessionController = new RootDiagnosticSessionController(getApplicationContext());
         latestRootFeatureConfig = rootFeatureConfigStore.load();
         latestRootFeatureRuntimeReport = rootFeatureRuntimeController.reload(latestRootFeatureConfig);
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
@@ -484,6 +499,10 @@ public class RouteRunActivity extends BaseActivity {
         hideCompletionOverlay();
         removeFloatingWindow();
         viewModel.stopSimulation();
+        if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
+            RootDiagnosticSessionController.FinishResult result = rootDiagnosticSessionController.finishSession();
+            appendRootAudit("目标APK诊断因页面销毁自动结束: " + result.getMessage());
+        }
         if (bound) {
             unbindService(serviceConnection);
             bound = false;
@@ -2138,11 +2157,16 @@ public class RouteRunActivity extends BaseActivity {
         settingsRootDeveloperStatusView = dialogView.findViewById(R.id.tv_dialog_root_developer_status);
         settingsRootMockStatusView = dialogView.findViewById(R.id.tv_dialog_root_mock_status);
         settingsRootHookStatusView = dialogView.findViewById(R.id.tv_dialog_root_hook_status);
+        settingsRootTargetStatusView = dialogView.findViewById(R.id.tv_dialog_root_target_status);
         settingsRootFeatureConfigStatusView = dialogView.findViewById(R.id.tv_dialog_root_feature_config_status);
+        settingsRootDiagnosticLogView = dialogView.findViewById(R.id.tv_dialog_root_diagnostic_log);
         settingsRootAuditLogView = dialogView.findViewById(R.id.tv_dialog_root_audit_log);
         settingsRootRefreshButton = dialogView.findViewById(R.id.btn_dialog_root_refresh);
         settingsRootConfirmSessionButton = dialogView.findViewById(R.id.btn_dialog_root_confirm_session);
         settingsRootRequestSuButton = dialogView.findViewById(R.id.btn_dialog_root_request_su);
+        settingsRootPickTargetButton = dialogView.findViewById(R.id.btn_dialog_root_pick_target);
+        settingsRootStartDiagnosticButton = dialogView.findViewById(R.id.btn_dialog_root_start_diagnostic);
+        settingsRootEndDiagnosticButton = dialogView.findViewById(R.id.btn_dialog_root_end_diagnostic);
         settingsRootReloadConfigButton = dialogView.findViewById(R.id.btn_dialog_root_reload_config);
         settingsRootGenerateGmButton = dialogView.findViewById(R.id.btn_dialog_root_generate_gm);
         settingsAlgorithmLabButton = dialogView.findViewById(R.id.btn_dialog_algorithm_lab);
@@ -2216,6 +2240,15 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (settingsRootRequestSuButton != null) {
             settingsRootRequestSuButton.setOnClickListener(v -> requestRootShellAuthorization());
+        }
+        if (settingsRootPickTargetButton != null) {
+            settingsRootPickTargetButton.setOnClickListener(v -> showRootTargetApkPicker());
+        }
+        if (settingsRootStartDiagnosticButton != null) {
+            settingsRootStartDiagnosticButton.setOnClickListener(v -> confirmStartRootDiagnosticSession());
+        }
+        if (settingsRootEndDiagnosticButton != null) {
+            settingsRootEndDiagnosticButton.setOnClickListener(v -> finishRootDiagnosticSession());
         }
         bindRootFeatureSwitches();
         if (settingsRootReloadConfigButton != null) {
@@ -2423,11 +2456,16 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootDeveloperStatusView = null;
             settingsRootMockStatusView = null;
             settingsRootHookStatusView = null;
+            settingsRootTargetStatusView = null;
             settingsRootFeatureConfigStatusView = null;
+            settingsRootDiagnosticLogView = null;
             settingsRootAuditLogView = null;
             settingsRootRefreshButton = null;
             settingsRootConfirmSessionButton = null;
             settingsRootRequestSuButton = null;
+            settingsRootPickTargetButton = null;
+            settingsRootStartDiagnosticButton = null;
+            settingsRootEndDiagnosticButton = null;
             settingsRootReloadConfigButton = null;
             settingsRootGenerateGmButton = null;
             settingsAlgorithmLabButton = null;
@@ -2610,9 +2648,11 @@ public class RouteRunActivity extends BaseActivity {
                     config.getVersion(),
                     config.getInjectionFramework().name(),
                     androidCompatibilityText(),
+                    TextUtils.isEmpty(config.getTargetPackageName()) ? "未选择" : config.getTargetPackageName(),
                     joinLines(report.summarizeLines(), 8)
             ));
         }
+        renderRootDiagnosticPanel();
     }
 
     private void setRootFeatureSwitchState(
@@ -2669,6 +2709,253 @@ public class RouteRunActivity extends BaseActivity {
             builder.append('\n').append("...");
         }
         return builder.toString();
+    }
+
+    private void renderRootDiagnosticPanel() {
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        String targetPackageName = config.getTargetPackageName();
+        boolean targetSelected = !TextUtils.isEmpty(targetPackageName);
+        boolean internalEnabled = isInternalRootTestingEnabled();
+        boolean running = rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning();
+        boolean hasModules = !RootDiagnosticModule.enabledIn(config).isEmpty();
+
+        if (settingsRootTargetStatusView != null) {
+            if (!targetSelected) {
+                settingsRootTargetStatusView.setText(R.string.route_root_target_none);
+            } else {
+                settingsRootTargetStatusView.setText(getString(
+                        R.string.route_root_target_format,
+                        resolveAppLabel(targetPackageName),
+                        targetPackageName,
+                        resolveAppVersion(targetPackageName),
+                        RootDiagnosticModule.summarizeEnabled(config)
+                ));
+            }
+        }
+        if (settingsRootPickTargetButton != null) {
+            settingsRootPickTargetButton.setEnabled(internalEnabled && !running);
+        }
+        if (settingsRootStartDiagnosticButton != null) {
+            settingsRootStartDiagnosticButton.setEnabled(internalEnabled
+                    && rootTestSessionConfirmed
+                    && rootShellAuthorized
+                    && targetSelected
+                    && config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
+                    && hasModules
+                    && !running);
+        }
+        if (settingsRootEndDiagnosticButton != null) {
+            settingsRootEndDiagnosticButton.setEnabled(running);
+        }
+        if (settingsRootDiagnosticLogView != null) {
+            List<String> lines = rootDiagnosticSessionController == null
+                    ? new ArrayList<>()
+                    : rootDiagnosticSessionController.getRecentEventLines(10);
+            if (lines.isEmpty()) {
+                File reportFile = rootDiagnosticSessionController == null ? null : rootDiagnosticSessionController.getLatestReportFile();
+                if (reportFile == null) {
+                    settingsRootDiagnosticLogView.setText(R.string.route_root_diagnostic_log_empty);
+                } else {
+                    settingsRootDiagnosticLogView.setText(getString(
+                            R.string.route_root_diagnostic_report_saved,
+                            reportFile.getAbsolutePath()
+                    ));
+                }
+            } else {
+                settingsRootDiagnosticLogView.setText(joinLines(lines, 10));
+            }
+        }
+    }
+
+    private void showRootTargetApkPicker() {
+        if (!isInternalRootTestingEnabled()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
+            return;
+        }
+        if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
+            GoUtils.DisplayToast(this, "请先结束当前诊断会话。");
+            return;
+        }
+        List<RootTargetApkItem> items = buildRootTargetApkItems();
+        if (items.isEmpty()) {
+            GoUtils.DisplayToast(this, "未读取到可选择的已安装应用。");
+            return;
+        }
+        String[] labels = new String[items.size()];
+        for (int index = 0; index < items.size(); index++) {
+            RootTargetApkItem item = items.get(index);
+            labels[index] = item.label + " · " + item.packageName + " · " + item.versionName;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_root_pick_target_button)
+                .setItems(labels, (dialog, which) -> selectRootTargetApk(items.get(which)))
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .show();
+    }
+
+    @NonNull
+    private List<RootTargetApkItem> buildRootTargetApkItems() {
+        List<RootTargetApkItem> items = new ArrayList<>();
+        PackageManager packageManager = getPackageManager();
+        try {
+            List<ApplicationInfo> applications = packageManager.getInstalledApplications(PackageManager.GET_META_DATA);
+            for (ApplicationInfo applicationInfo : applications) {
+                if (applicationInfo == null || TextUtils.isEmpty(applicationInfo.packageName)) {
+                    continue;
+                }
+                String label = resolveAppLabel(packageManager, applicationInfo);
+                String versionName = resolveAppVersion(packageManager, applicationInfo.packageName);
+                boolean systemApp = (applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                items.add(new RootTargetApkItem(
+                        label,
+                        applicationInfo.packageName,
+                        versionName,
+                        systemApp,
+                        SearchSortUtils.buildSortKey(label + applicationInfo.packageName)
+                ));
+            }
+        } catch (Exception exception) {
+            XLog.e("Root target APK list failed: " + exception.getClass().getSimpleName());
+        }
+        items.sort(Comparator.comparing(RootTargetApkItem::getSortKey));
+        return items;
+    }
+
+    private void selectRootTargetApk(@NonNull RootTargetApkItem item) {
+        if (rootFeatureConfigStore == null) {
+            return;
+        }
+        RootFeatureConfig config = rootFeatureConfigStore.setTargetPackage(item.packageName);
+        applyRootFeatureConfig(config, "target_" + item.packageName, true);
+        appendRootAudit("选择目标APK: label=" + item.label
+                + ", package=" + item.packageName
+                + ", version=" + item.versionName
+                + ", system=" + item.systemApp);
+        GoUtils.DisplayToast(this, "已选择目标APK：" + item.packageName);
+    }
+
+    private void confirmStartRootDiagnosticSession() {
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        if (TextUtils.isEmpty(config.getTargetPackageName())) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_diagnostic_need_target));
+            return;
+        }
+        if (!rootTestSessionConfirmed || !rootShellAuthorized) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_diagnostic_need_su));
+            return;
+        }
+        if (RootDiagnosticModule.enabledIn(config).isEmpty()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_diagnostic_no_modules));
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_root_diagnostic_start_title)
+                .setMessage(getString(
+                        R.string.route_root_diagnostic_start_message,
+                        config.getTargetPackageName(),
+                        RootDiagnosticModule.summarizeEnabled(config)
+                ))
+                .setPositiveButton(R.string.route_link_settings_confirm, (dialog, which) -> startRootDiagnosticSession())
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .show();
+    }
+
+    private void startRootDiagnosticSession() {
+        if (rootDiagnosticSessionController == null) {
+            return;
+        }
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        RootDiagnosticSessionController.StartResult result = rootDiagnosticSessionController.startSession(
+                config,
+                event -> runOnUiThread(this::renderRootDiagnosticPanel)
+        );
+        appendRootAudit("目标APK诊断启动: target=" + config.getTargetPackageName()
+                + ", modules=" + RootDiagnosticModule.summarizeEnabled(config)
+                + ", result=" + result.getMessage());
+        renderRootDiagnosticPanel();
+        updateRootAuditLog();
+        GoUtils.DisplayToast(this, result.isStarted()
+                ? getString(R.string.route_root_diagnostic_started, result.getMessage())
+                : result.getMessage());
+    }
+
+    private void finishRootDiagnosticSession() {
+        if (rootDiagnosticSessionController == null) {
+            return;
+        }
+        RootDiagnosticSessionController.FinishResult result = rootDiagnosticSessionController.finishSession();
+        latestRootDiagnosticReport = result.getReport();
+        appendRootAudit("目标APK诊断结束: " + result.getMessage());
+        renderRootDiagnosticPanel();
+        updateRootAuditLog();
+        if (result.getReport() != null) {
+            showRootDiagnosticReport(result);
+        } else {
+            GoUtils.DisplayToast(this, result.getMessage());
+        }
+    }
+
+    private void showRootDiagnosticReport(@NonNull RootDiagnosticSessionController.FinishResult result) {
+        RootDiagnosticSessionReport report = result.getReport();
+        if (report == null) {
+            return;
+        }
+        File reportFile = result.getReportFile();
+        String reportPath = reportFile == null ? "未保存" : reportFile.getAbsolutePath();
+        String message = getString(R.string.route_root_diagnostic_report_saved, reportPath)
+                + "\n\n"
+                + previewText(report.toText(), 3200);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_root_diagnostic_finished_title)
+                .setMessage(message)
+                .setPositiveButton(R.string.route_link_settings_confirm, null)
+                .show();
+    }
+
+    @NonNull
+    private String resolveAppLabel(@NonNull String packageName) {
+        PackageManager packageManager = getPackageManager();
+        try {
+            ApplicationInfo applicationInfo = packageManager.getApplicationInfo(packageName, 0);
+            return resolveAppLabel(packageManager, applicationInfo);
+        } catch (Exception ignored) {
+            return packageName;
+        }
+    }
+
+    @NonNull
+    private String resolveAppLabel(@NonNull PackageManager packageManager, @NonNull ApplicationInfo applicationInfo) {
+        try {
+            CharSequence label = applicationInfo.loadLabel(packageManager);
+            if (label != null && !TextUtils.isEmpty(label.toString().trim())) {
+                return label.toString().trim();
+            }
+        } catch (Exception ignored) {
+            // Fall through to package name.
+        }
+        return applicationInfo.packageName;
+    }
+
+    @NonNull
+    private String resolveAppVersion(@NonNull String packageName) {
+        return resolveAppVersion(getPackageManager(), packageName);
+    }
+
+    @NonNull
+    private String resolveAppVersion(@NonNull PackageManager packageManager, @NonNull String packageName) {
+        try {
+            PackageInfo packageInfo = packageManager.getPackageInfo(packageName, 0);
+            String versionName = packageInfo.versionName;
+            if (!TextUtils.isEmpty(versionName)) {
+                return versionName;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                return String.valueOf(packageInfo.getLongVersionCode());
+            }
+            return String.valueOf(packageInfo.versionCode);
+        } catch (Exception ignored) {
+            return "unknown";
+        }
     }
 
     private void refreshRootEnvironmentReport(boolean promptWhenNotRoot) {
@@ -2987,6 +3274,7 @@ public class RouteRunActivity extends BaseActivity {
             runOnUiThread(() -> {
                 rootShellAuthorized = result.isAuthorized();
                 updateRootAuthorizationStatus(result);
+                renderRootDiagnosticPanel();
                 updateRootAuditLog();
                 if (settingsRootRequestSuButton != null) {
                     settingsRootRequestSuButton.setEnabled(isInternalRootTestingEnabled()
@@ -4833,6 +5121,34 @@ public class RouteRunActivity extends BaseActivity {
         private RingtoneOption(String title, Uri uri) {
             this.title = title;
             this.uri = uri;
+        }
+    }
+
+    private static final class RootTargetApkItem implements PickerIndexable {
+        private final String label;
+        private final String packageName;
+        private final String versionName;
+        private final boolean systemApp;
+        private final String sortKey;
+
+        private RootTargetApkItem(
+                @NonNull String label,
+                @NonNull String packageName,
+                @NonNull String versionName,
+                boolean systemApp,
+                @NonNull String sortKey
+        ) {
+            this.label = label;
+            this.packageName = packageName;
+            this.versionName = versionName;
+            this.systemApp = systemApp;
+            this.sortKey = sortKey;
+        }
+
+        @NonNull
+        @Override
+        public String getSortKey() {
+            return sortKey;
         }
     }
 
