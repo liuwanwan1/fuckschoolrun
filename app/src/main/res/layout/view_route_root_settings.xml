@@ -203,6 +203,35 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/section_settings_algorithm_lab"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_algorithm_lab_title"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_algorithm_lab_summary"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btn_dialog_algorithm_lab"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/route_algorithm_lab_button" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/section_settings_root_logs"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

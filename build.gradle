@@ -23,6 +23,7 @@ allprojects {
     gradle.projectsEvaluated {
         tasks.withType(JavaCompile).tap {
             configureEach { // 用于显示过时 API 的详细信息
+                options.encoding = 'UTF-8'
                 options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation"
             }
         }

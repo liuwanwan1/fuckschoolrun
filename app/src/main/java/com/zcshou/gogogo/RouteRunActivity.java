@@ -198,6 +198,7 @@ public class RouteRunActivity extends BaseActivity {
     private Button settingsRootRefreshButton;
     private Button settingsRootConfirmSessionButton;
     private Button settingsRootRequestSuButton;
+    private Button settingsAlgorithmLabButton;
     private EditText settingsLinkRatioLeftInput;
     private EditText settingsLinkRatioRightInput;
     private EditText settingsStepsPerMeterInput;
@@ -2104,6 +2105,7 @@ public class RouteRunActivity extends BaseActivity {
         settingsRootRefreshButton = dialogView.findViewById(R.id.btn_dialog_root_refresh);
         settingsRootConfirmSessionButton = dialogView.findViewById(R.id.btn_dialog_root_confirm_session);
         settingsRootRequestSuButton = dialogView.findViewById(R.id.btn_dialog_root_request_su);
+        settingsAlgorithmLabButton = dialogView.findViewById(R.id.btn_dialog_algorithm_lab);
         Button pickRingtoneButton = dialogView.findViewById(R.id.btn_dialog_pick_ringtone);
         Button uploadSettingsButton = dialogView.findViewById(R.id.btn_dialog_upload_settings);
         Button downloadSettingsButton = dialogView.findViewById(R.id.btn_dialog_download_settings);
@@ -2162,6 +2164,9 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (settingsRootRequestSuButton != null) {
             settingsRootRequestSuButton.setOnClickListener(v -> requestRootShellAuthorization());
+        }
+        if (settingsAlgorithmLabButton != null) {
+            settingsAlgorithmLabButton.setOnClickListener(v -> openAlgorithmTestLab());
         }
         if (rootSwitchNonRootButton != null) {
             rootSwitchNonRootButton.setOnClickListener(v -> selectSimulationSettingsMode(false));
@@ -2356,6 +2361,7 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootRefreshButton = null;
             settingsRootConfirmSessionButton = null;
             settingsRootRequestSuButton = null;
+            settingsAlgorithmLabButton = null;
         });
         simulationSettingsDialog.show();
     }
@@ -2457,6 +2463,9 @@ public class RouteRunActivity extends BaseActivity {
         if (settingsRootRequestSuButton != null) {
             settingsRootRequestSuButton.setEnabled(internalEnabled && rootTestSessionConfirmed);
         }
+        if (settingsAlgorithmLabButton != null) {
+            settingsAlgorithmLabButton.setEnabled(BuildConfig.ENABLE_ALGORITHM_TEST);
+        }
         updateRootAuthorizationStatus(null);
         updateRootAuditLog();
 
@@ -2541,6 +2550,20 @@ public class RouteRunActivity extends BaseActivity {
                 .setPositiveButton(R.string.route_link_settings_confirm, (dialog, which) -> runRootShellProbe())
                 .setNegativeButton(R.string.route_link_settings_cancel, null)
                 .show();
+    }
+
+    private void openAlgorithmTestLab() {
+        if (!BuildConfig.ENABLE_ALGORITHM_TEST) {
+            GoUtils.DisplayToast(this, getString(R.string.route_algorithm_lab_disabled));
+            return;
+        }
+        try {
+            Class<?> activityClass = Class.forName("com.acooldog.toolbox.AlgorithmTestLabActivity");
+            Intent intent = new Intent(this, activityClass);
+            startActivity(intent);
+        } catch (Exception exception) {
+            GoUtils.DisplayToast(this, getString(R.string.route_algorithm_lab_disabled));
+        }
     }
 
     private void runRootShellProbe() {
@@ -3270,7 +3293,13 @@ public class RouteRunActivity extends BaseActivity {
         sections.add(new SettingsSection(
                 dialogView.findViewById(R.id.layout_dialog_settings_root_container),
                 getString(R.string.route_settings_letter_root),
-                "Root 授权 检测 审计 Hook 开发者选项 模拟位置",
+                "Root 授权 检测 审计 Hook 开发者选项 模拟位置 算法 验证 实验室 测试数据 管理 步频 GPS 传感器 一致性",
+                true
+        ));
+        sections.add(new SettingsSection(
+                dialogView.findViewById(R.id.section_settings_algorithm_lab),
+                getString(R.string.route_settings_letter_root),
+                "算法 验证 实验室 步频 GPS 传感器 一致性 测试数据 管理",
                 true
         ));
 
