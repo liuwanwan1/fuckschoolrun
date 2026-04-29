@@ -9,6 +9,7 @@
 Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 
 - Root 模式新增总开关；只有 DEBUG 内测构建、设备检测到 Root 迹象并手动开启总开关后，才显示环境、模块、日志等高级控件。未检测到 Root 时总开关保持禁用，避免误触发诊断链路。
+- 已接入我司内部项目 [FUCK-RUN](https://github.com/BieFan1029/FUCK-RUN-) 的兼容画像：`com.huachenjie.shandong_school`、`com.huachenjie.shandong_school_pro`、`com.bxkj.student`、`com.zjwh.android_wh_physicalfitness`、`android.youma.com` 均视为公司内部授权测试软件，并写入 LSPosed 推荐作用域；工具不会自动选择作用域，仍由测试人员在 LSPosed 中确认目标。
 - 工具启动时检测 `org.lsposed.manager` 是否安装；未检测到时禁用作用域跳转并提示安装 LSPosed。
 - 本应用按 LSPosed 模块声明：`AndroidManifest.xml` 写入 `xposedmodule`、`xposedminversion=82`、`xposedscope`，`assets/xposed_init` 指向 `RootDiagnosticLsposedModule`。
 - 目标 APK 不再由本应用枚举安装列表选择；点击按钮会打开 LSPosed 管理器，由测试人员在本模块的作用域页面勾选目标 APK。
@@ -25,7 +26,7 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 - 特定检测绕过测试：Hook root、调试、mock location 等检测接口返回值；可单独开启 root 文件/命令、调试器、mock location 返回值控制。
 - 目标应用内部 Hook：在 LSPosed 作用域进程内保留内部检测函数测试计划；可设置最多 Hook 方法数。
 - 系统服务数据流控制：控制目标进程内剪贴板、蓝牙、NFC 交互；可单独控制剪贴板、蓝牙、NFC 返回值。
-- 传感器数据注入：Hook `SensorManager.registerListener` 和目标进程内 `SensorEventListener`，参考 [FUCK-RUN](https://github.com/BieFan1029/FUCK-RUN-) 的正弦波模型注入加速度、计步器、步频检测数据；可设置 140-220 SPM 步频范围和 Z 轴波形振幅。
+- 传感器数据注入：Hook `SensorManager.registerListener`、`SystemSensorManager`、ColorOS/OnePlus `OplusSensorManager` 和目标进程内 `SensorEventListener`，参考我司内部 [FUCK-RUN](https://github.com/BieFan1029/FUCK-RUN-) 的正弦波模型注入加速度、计步器、步频检测数据；可设置 140-220 SPM 步频范围和 Z 轴波形振幅。
 
 ## 执行要求
 

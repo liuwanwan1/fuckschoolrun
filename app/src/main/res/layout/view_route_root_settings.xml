@@ -188,6 +188,17 @@
             android:text="@string/route_root_pick_target_button" />
 
         <TextView
+            android:id="@+id/tv_dialog_root_compatibility_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#FFFDE7"
+            android:padding="8dp"
+            android:text="@string/route_root_compatibility_status_loading"
+            android:textColor="#5D4037"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/tv_dialog_root_diagnostic_log"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

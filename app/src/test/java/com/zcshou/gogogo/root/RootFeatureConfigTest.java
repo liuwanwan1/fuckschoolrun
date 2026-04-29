@@ -35,4 +35,13 @@ public class RootFeatureConfigTest {
                 RootDiagnosticModule.fromId(RootFeature.SENSOR_EVENT_INJECTION.getConfigKey())
         );
     }
+
+    @Test
+    public void compatibilityCatalog_includesInternalFuckRunProfiles() {
+        assertEquals(5, RootDiagnosticCompatibilityCatalog.all().size());
+        assertEquals(
+                "com.huachenjie.shandong_school",
+                RootDiagnosticCompatibilityCatalog.all().get(0).getPackageName()
+        );
+    }
 }

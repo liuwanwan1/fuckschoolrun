@@ -7,5 +7,11 @@
         <item>0</item>
         <item>1</item>
     </string-array>
-    <string-array name="xposedscope" />
+    <string-array name="xposedscope">
+        <item>com.huachenjie.shandong_school</item>
+        <item>com.huachenjie.shandong_school_pro</item>
+        <item>com.bxkj.student</item>
+        <item>com.zjwh.android_wh_physicalfitness</item>
+        <item>android.youma.com</item>
+    </string-array>
 </resources>

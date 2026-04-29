@@ -73,6 +73,11 @@
         <package android:name="me.weishu.exp" />
         <package android:name="com.saurik.substrate" />
         <package android:name="top.canyie.pine" />
+        <package android:name="com.huachenjie.shandong_school" />
+        <package android:name="com.huachenjie.shandong_school_pro" />
+        <package android:name="com.bxkj.student" />
+        <package android:name="com.zjwh.android_wh_physicalfitness" />
+        <package android:name="android.youma.com" />
     </queries>
 
     <application

@@ -92,6 +92,7 @@ import com.acooldog.toolbox.route.domain.model.RouteShareInfo;
 import com.acooldog.toolbox.route.domain.service.RouteEditUtils;
 import com.acooldog.toolbox.route.domain.service.LocationSimulationGateway;
 import com.acooldog.toolbox.route.presentation.RouteRunViewModel;
+import com.acooldog.toolbox.root.RootDiagnosticCompatibilityCatalog;
 import com.acooldog.toolbox.root.RootEnvironmentInspector;
 import com.acooldog.toolbox.root.RootEnvironmentReport;
 import com.acooldog.toolbox.root.RootDiagnosticModule;
@@ -232,6 +233,7 @@ public class RouteRunActivity extends BaseActivity {
     private TextView settingsRootMockStatusView;
     private TextView settingsRootHookStatusView;
     private TextView settingsRootTargetStatusView;
+    private TextView settingsRootCompatibilityStatusView;
     private TextView settingsRootFeatureConfigStatusView;
     private TextView settingsRootDiagnosticLogView;
     private TextView settingsRootAuditLogView;
@@ -2188,6 +2190,7 @@ public class RouteRunActivity extends BaseActivity {
         settingsRootMockStatusView = dialogView.findViewById(R.id.tv_dialog_root_mock_status);
         settingsRootHookStatusView = dialogView.findViewById(R.id.tv_dialog_root_hook_status);
         settingsRootTargetStatusView = dialogView.findViewById(R.id.tv_dialog_root_target_status);
+        settingsRootCompatibilityStatusView = dialogView.findViewById(R.id.tv_dialog_root_compatibility_status);
         settingsRootFeatureConfigStatusView = dialogView.findViewById(R.id.tv_dialog_root_feature_config_status);
         settingsRootDiagnosticLogView = dialogView.findViewById(R.id.tv_dialog_root_diagnostic_log);
         settingsRootAuditLogView = dialogView.findViewById(R.id.tv_dialog_root_audit_log);
@@ -2500,6 +2503,7 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootMockStatusView = null;
             settingsRootHookStatusView = null;
             settingsRootTargetStatusView = null;
+            settingsRootCompatibilityStatusView = null;
             settingsRootFeatureConfigStatusView = null;
             settingsRootDiagnosticLogView = null;
             settingsRootAuditLogView = null;
@@ -2923,6 +2927,11 @@ public class RouteRunActivity extends BaseActivity {
                     ? R.string.route_root_open_lsposed_scope_button
                     : R.string.route_root_lsposed_missing_button);
         }
+        if (settingsRootCompatibilityStatusView != null) {
+            settingsRootCompatibilityStatusView.setText(
+                    RootDiagnosticCompatibilityCatalog.summarizeForDisplay(this)
+            );
+        }
         setModuleSettingsButtonState(settingsRootNmeaSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.LOCATION_NMEA);
         setModuleSettingsButtonState(settingsRootSignalSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
         setModuleSettingsButtonState(settingsRootBypassSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.DETECTION_BYPASS);
@@ -3115,7 +3124,7 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull RootDiagnosticSettings settings
     ) {
         TextView hint = new TextView(this);
-        hint.setText("参考 FUCK-RUN 的正弦波步频模型：每次诊断在范围内随机选择固定步频，范围限制 140-220 SPM。");
+        hint.setText("参考我司内部 FUCK-RUN 的正弦波步频模型：每次诊断在范围内随机选择固定步频，范围限制 140-220 SPM。");
         hint.setTextColor(Color.parseColor("#455A64"));
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
         content.addView(hint, new LinearLayout.LayoutParams(

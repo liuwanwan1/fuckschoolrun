@@ -432,6 +432,7 @@
     <string name="route_root_lsposed_open_failed">无法打开LSPosed管理器，请手动打开后选择本模块作用域。</string>
     <string name="route_root_lsposed_module_description">SchoolRun 内部诊断 - LSPosed作用域模块</string>
     <string name="route_root_module_settings_button">模块设置</string>
+    <string name="route_root_compatibility_status_loading">公司内部适配画像：等待检测。</string>
     <string name="route_root_diagnostic_log_empty">诊断日志：暂无事件。</string>
     <string name="route_root_diagnostic_need_target">请先在LSPosed作用域中选择目标APK。</string>
     <string name="route_root_diagnostic_need_su">请先确认测试会话；Frida回退模式还需要完成Root授权探测。</string>

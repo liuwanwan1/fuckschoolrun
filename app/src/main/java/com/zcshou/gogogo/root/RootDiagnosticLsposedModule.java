@@ -55,6 +55,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     private static volatile long sensorStartMillis;
     private static volatile float stepBaseOffset = -1f;
     private static volatile double currentCadence;
+    private static volatile long lastSensorLogSecond = -1L;
 
     static {
         EXCLUDED_PACKAGES.add(MODULE_PACKAGE);
@@ -446,6 +447,17 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             } catch (Throwable ignored) {
                 // Device implementation may not expose the class through this loader.
             }
+            try {
+                Class<?> oplusSensorManager = XposedHelpers.findClass(
+                        "com.oplus.sensor.OplusSensorManager",
+                        classLoader
+                );
+                hookRegisterListenerMethods(packageName, oplusSensorManager);
+                logEvent(packageName, RootDiagnosticModule.SENSOR_INJECTION, "vendor_adapter_ready",
+                        "ColorOS/OnePlus OplusSensorManager registerListener");
+            } catch (Throwable ignored) {
+                // Internal FUCK-RUN supports this vendor path when present; other devices do not expose it.
+            }
         } catch (Throwable throwable) {
             XposedBridge.log("SchoolRunDiag sensor hooks failed: " + throwable.getMessage());
         }
@@ -505,12 +517,19 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     double frequency = currentCadence / 60d;
                     double phase = elapsedSeconds * Math.PI * 2d * frequency;
                     if (type == Sensor.TYPE_ACCELEROMETER && event.values.length >= 3) {
-                        event.values[0] = (float) (Math.sin(phase) * 0.8d);
-                        event.values[1] = (float) (Math.cos(phase * 0.5d) * 0.6d);
+                        double jitterY = (Math.random() * 0.3d) - 0.15d;
+                        double jitterZ = (Math.random() * 0.3d) - 0.15d;
+                        event.values[0] = (float) ((Math.random() * 0.1d) - 0.05d);
+                        event.values[1] = (float) (Math.cos(phase) * 1.5d + jitterY);
                         event.values[2] = (float) (9.81d
-                                + Math.sin(phase) * activeSettings.getSensorWaveAmplitude());
-                        logEvent(packageName, RootDiagnosticModule.SENSOR_INJECTION, "data_injected",
-                                "accelerometer cadence=" + Math.round(currentCadence));
+                                + Math.sin(phase) * activeSettings.getSensorWaveAmplitude()
+                                + jitterZ);
+                        long elapsedWholeSecond = (long) elapsedSeconds;
+                        if (elapsedWholeSecond != lastSensorLogSecond) {
+                            lastSensorLogSecond = elapsedWholeSecond;
+                            logEvent(packageName, RootDiagnosticModule.SENSOR_INJECTION, "data_injected",
+                                    "accelerometer cadence=" + Math.round(currentCadence));
+                        }
                     } else if ((type == Sensor.TYPE_STEP_COUNTER || type == 19) && event.values.length >= 1) {
                         if (stepBaseOffset < 0f) {
                             stepBaseOffset = event.values[0];
@@ -554,6 +573,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     private static void resetSensorState() {
         sensorStartMillis = System.currentTimeMillis();
         stepBaseOffset = -1f;
+        lastSensorLogSecond = -1L;
         RootDiagnosticSettings settings = activeSettings == null
                 ? RootDiagnosticSettings.defaults()
                 : activeSettings;
