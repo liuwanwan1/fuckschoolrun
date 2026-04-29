@@ -199,6 +199,8 @@ public class RouteRunActivity extends BaseActivity {
     private Button settingsRootConfirmSessionButton;
     private Button settingsRootRequestSuButton;
     private Button settingsAlgorithmLabButton;
+    private Button settingsTestInstructionStudioButton;
+    private Button settingsScenarioLibraryButton;
     private EditText settingsLinkRatioLeftInput;
     private EditText settingsLinkRatioRightInput;
     private EditText settingsStepsPerMeterInput;
@@ -2106,6 +2108,7 @@ public class RouteRunActivity extends BaseActivity {
         settingsRootConfirmSessionButton = dialogView.findViewById(R.id.btn_dialog_root_confirm_session);
         settingsRootRequestSuButton = dialogView.findViewById(R.id.btn_dialog_root_request_su);
         settingsAlgorithmLabButton = dialogView.findViewById(R.id.btn_dialog_algorithm_lab);
+        installDebugTestStudioButtons(dialogView);
         Button pickRingtoneButton = dialogView.findViewById(R.id.btn_dialog_pick_ringtone);
         Button uploadSettingsButton = dialogView.findViewById(R.id.btn_dialog_upload_settings);
         Button downloadSettingsButton = dialogView.findViewById(R.id.btn_dialog_download_settings);
@@ -2362,6 +2365,8 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootConfirmSessionButton = null;
             settingsRootRequestSuButton = null;
             settingsAlgorithmLabButton = null;
+            settingsTestInstructionStudioButton = null;
+            settingsScenarioLibraryButton = null;
         });
         simulationSettingsDialog.show();
     }
@@ -2466,6 +2471,12 @@ public class RouteRunActivity extends BaseActivity {
         if (settingsAlgorithmLabButton != null) {
             settingsAlgorithmLabButton.setEnabled(BuildConfig.ENABLE_ALGORITHM_TEST);
         }
+        if (settingsTestInstructionStudioButton != null) {
+            settingsTestInstructionStudioButton.setEnabled(BuildConfig.ENABLE_ALGORITHM_TEST);
+        }
+        if (settingsScenarioLibraryButton != null) {
+            settingsScenarioLibraryButton.setEnabled(BuildConfig.ENABLE_ALGORITHM_TEST);
+        }
         updateRootAuthorizationStatus(null);
         updateRootAuditLog();
 
@@ -2560,6 +2571,63 @@ public class RouteRunActivity extends BaseActivity {
         try {
             Class<?> activityClass = Class.forName("com.acooldog.toolbox.AlgorithmTestLabActivity");
             Intent intent = new Intent(this, activityClass);
+            startActivity(intent);
+        } catch (Exception exception) {
+            GoUtils.DisplayToast(this, getString(R.string.route_algorithm_lab_disabled));
+        }
+    }
+
+    private void installDebugTestStudioButtons(@NonNull View dialogView) {
+        if (!BuildConfig.ENABLE_ALGORITHM_TEST) {
+            return;
+        }
+        View section = dialogView.findViewById(R.id.section_settings_algorithm_lab);
+        if (!(section instanceof LinearLayout)) {
+            return;
+        }
+        LinearLayout sectionLayout = (LinearLayout) section;
+        settingsTestInstructionStudioButton = new Button(this);
+        settingsTestInstructionStudioButton.setText("打开测试指令工作室");
+        settingsTestInstructionStudioButton.setOnClickListener(v -> confirmOpenTestInstructionStudio(false));
+        sectionLayout.addView(settingsTestInstructionStudioButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        settingsScenarioLibraryButton = new Button(this);
+        settingsScenarioLibraryButton.setText("打开场景模板库");
+        settingsScenarioLibraryButton.setOnClickListener(v -> confirmOpenTestInstructionStudio(true));
+        sectionLayout.addView(settingsScenarioLibraryButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+    }
+
+    private void confirmOpenTestInstructionStudio(boolean openLibrary) {
+        if (!BuildConfig.DEBUG || !BuildConfig.ENABLE_ALGORITHM_TEST || !new InternalAuthStore(getApplicationContext()).isLoggedIn()) {
+            GoUtils.DisplayToast(this, "测试指令工作室仅在DEBUG模式对内测人员开放。");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("开启测试指令工作室")
+                .setMessage("此功能仅用于内部算法验证，不注入系统。")
+                .setPositiveButton(R.string.route_link_settings_confirm, (firstDialog, firstWhich) ->
+                        new AlertDialog.Builder(this)
+                                .setTitle("开启测试指令工作室")
+                                .setMessage("所有操作将被记录到加密审计日志。")
+                                .setPositiveButton(R.string.route_link_settings_confirm, (secondDialog, secondWhich) ->
+                                        openTestInstructionStudio(openLibrary))
+                                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                                .show())
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .show();
+    }
+
+    private void openTestInstructionStudio(boolean openLibrary) {
+        try {
+            Class<?> activityClass = Class.forName("com.acooldog.toolbox.TestInstructionStudioActivity");
+            Intent intent = new Intent(this, activityClass);
+            intent.putExtra("open_library", openLibrary);
             startActivity(intent);
         } catch (Exception exception) {
             GoUtils.DisplayToast(this, getString(R.string.route_algorithm_lab_disabled));
@@ -3293,13 +3361,13 @@ public class RouteRunActivity extends BaseActivity {
         sections.add(new SettingsSection(
                 dialogView.findViewById(R.id.layout_dialog_settings_root_container),
                 getString(R.string.route_settings_letter_root),
-                "Root 授权 检测 审计 Hook 开发者选项 模拟位置 算法 验证 实验室 测试数据 管理 步频 GPS 传感器 一致性",
+                "Root 授权 检测 审计 Hook 开发者选项 模拟位置 算法 验证 实验室 测试数据 管理 步频 GPS 传感器 一致性 测试指令 工作室 场景模板 回放",
                 true
         ));
         sections.add(new SettingsSection(
                 dialogView.findViewById(R.id.section_settings_algorithm_lab),
                 getString(R.string.route_settings_letter_root),
-                "算法 验证 实验室 步频 GPS 传感器 一致性 测试数据 管理",
+                "算法 验证 实验室 步频 GPS 传感器 一致性 测试数据 管理 测试指令 工作室 场景模板 回放",
                 true
         ));
 

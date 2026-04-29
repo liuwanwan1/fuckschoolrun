@@ -24,6 +24,11 @@ final class AlgorithmTestFileStore {
 
     @NonNull
     File save(@NonNull String prefix, @NonNull String extension, @NonNull String content) throws Exception {
+        return saveBytes(prefix, extension, content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @NonNull
+    File saveBytes(@NonNull String prefix, @NonNull String extension, @NonNull byte[] content) throws Exception {
         File directory = directory();
         if (!directory.exists() && !directory.mkdirs()) {
             throw new IllegalStateException("无法创建测试数据目录");
@@ -31,7 +36,7 @@ final class AlgorithmTestFileStore {
         String safePrefix = prefix.replaceAll("[^a-zA-Z0-9_\\-]", "_");
         File file = new File(directory, safePrefix + "_" + nameFormat.format(new Date()) + "." + extension);
         try (FileOutputStream outputStream = new FileOutputStream(file)) {
-            outputStream.write(content.getBytes(StandardCharsets.UTF_8));
+            outputStream.write(content);
         }
         return file;
     }
