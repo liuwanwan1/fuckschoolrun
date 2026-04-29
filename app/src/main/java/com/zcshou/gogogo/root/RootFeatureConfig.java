@@ -18,7 +18,8 @@ public final class RootFeatureConfig {
 
     public enum InjectionFramework {
         NONE,
-        FRIDA
+        FRIDA,
+        LSPOSED
     }
 
     private final int version;
@@ -56,7 +57,7 @@ public final class RootFeatureConfig {
         return new RootFeatureConfig(
                 1,
                 System.currentTimeMillis(),
-                InjectionFramework.FRIDA,
+                InjectionFramework.LSPOSED,
                 "",
                 defaults
         );
@@ -85,7 +86,7 @@ public final class RootFeatureConfig {
             return new RootFeatureConfig(
                     root.optInt(KEY_VERSION, 1),
                     root.optLong(KEY_UPDATED_AT, System.currentTimeMillis()),
-                    parseInjectionFramework(root.optString(KEY_INJECTION_FRAMEWORK, InjectionFramework.FRIDA.name())),
+                    parseInjectionFramework(root.optString(KEY_INJECTION_FRAMEWORK, InjectionFramework.LSPOSED.name())),
                     root.optString(KEY_TARGET_PACKAGE, ""),
                     switches
             );
@@ -137,6 +138,17 @@ public final class RootFeatureConfig {
         );
     }
 
+    @NonNull
+    public RootFeatureConfig withInjectionFramework(@NonNull InjectionFramework framework) {
+        return new RootFeatureConfig(
+                version + 1,
+                System.currentTimeMillis(),
+                framework,
+                targetPackageName,
+                switches
+        );
+    }
+
     public int getVersion() {
         return version;
     }
@@ -167,12 +179,12 @@ public final class RootFeatureConfig {
     @NonNull
     private static InjectionFramework parseInjectionFramework(@Nullable String value) {
         if (value == null || value.trim().isEmpty()) {
-            return InjectionFramework.FRIDA;
+            return InjectionFramework.LSPOSED;
         }
         try {
             return InjectionFramework.valueOf(value.trim().toUpperCase(Locale.US));
         } catch (Exception ignored) {
-            return InjectionFramework.FRIDA;
+            return InjectionFramework.LSPOSED;
         }
     }
 }

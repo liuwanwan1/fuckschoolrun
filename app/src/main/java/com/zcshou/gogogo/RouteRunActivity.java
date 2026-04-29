@@ -99,6 +99,7 @@ import com.acooldog.toolbox.root.RootDiagnosticSettings;
 import com.acooldog.toolbox.root.RootDiagnosticSettingsStore;
 import com.acooldog.toolbox.root.RootDiagnosticSessionController;
 import com.acooldog.toolbox.root.RootDiagnosticSessionReport;
+import com.acooldog.toolbox.root.LsposedDiagnosticBridge;
 import com.acooldog.toolbox.root.RootFeature;
 import com.acooldog.toolbox.root.RootFeatureConfig;
 import com.acooldog.toolbox.root.RootFeatureConfigStore;
@@ -410,7 +411,7 @@ public class RouteRunActivity extends BaseActivity {
         rootEnvironmentInspector = new RootEnvironmentInspector(getApplicationContext());
         rootAuditLogger = new RootTestAuditLogger(getApplicationContext());
         rootFeatureConfigStore = new RootFeatureConfigStore(getApplicationContext());
-        rootFeatureRuntimeController = new RootFeatureRuntimeController();
+        rootFeatureRuntimeController = new RootFeatureRuntimeController(getApplicationContext());
         rootDiagnosticSessionController = new RootDiagnosticSessionController(getApplicationContext());
         rootDiagnosticSettingsStore = new RootDiagnosticSettingsStore(getApplicationContext());
         latestRootFeatureConfig = rootFeatureConfigStore.load();
@@ -2260,7 +2261,7 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootRequestSuButton.setOnClickListener(v -> requestRootShellAuthorization());
         }
         if (settingsRootPickTargetButton != null) {
-            settingsRootPickTargetButton.setOnClickListener(v -> showRootTargetApkPicker());
+            settingsRootPickTargetButton.setOnClickListener(v -> openLsposedScopeSelectorFromRootPanel());
         }
         bindRootModuleSettingsButtons();
         bindRootFeatureSwitches();
@@ -2623,7 +2624,12 @@ public class RouteRunActivity extends BaseActivity {
         if (rootFeatureConfigStore == null) {
             return;
         }
-        applyRootFeatureConfig(rootFeatureConfigStore.load(), reason, writeAudit);
+        RootFeatureConfig config = rootFeatureConfigStore.load();
+        if (config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.FRIDA) {
+            config = config.withInjectionFramework(RootFeatureConfig.InjectionFramework.LSPOSED);
+            rootFeatureConfigStore.save(config);
+        }
+        applyRootFeatureConfig(config, reason, writeAudit);
     }
 
     private void applyRootFeatureConfig(
@@ -2639,7 +2645,8 @@ public class RouteRunActivity extends BaseActivity {
         if (writeAudit) {
             appendRootAudit("Root能力配置热重载: reason=" + reason
                     + ", version=" + config.getVersion()
-                    + ", frida=" + config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
+                    + ", framework=" + config.getInjectionFramework()
+                    + ", injection=" + config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
                     + ", gm=" + config.isEnabled(RootFeature.GM_TEST_INTERFACE));
         }
     }
@@ -2681,7 +2688,11 @@ public class RouteRunActivity extends BaseActivity {
                     config.getVersion(),
                     config.getInjectionFramework().name(),
                     androidCompatibilityText(),
-                    TextUtils.isEmpty(config.getTargetPackageName()) ? "未选择" : config.getTargetPackageName(),
+                    TextUtils.isEmpty(config.getTargetPackageName())
+                            ? (config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED
+                                    ? LsposedDiagnosticBridge.SCOPE_TARGET_LABEL
+                                    : "未选择")
+                            : config.getTargetPackageName(),
                     joinLines(report.summarizeLines(), 8)
             ));
         }
@@ -2748,11 +2759,20 @@ public class RouteRunActivity extends BaseActivity {
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
         String targetPackageName = config.getTargetPackageName();
         boolean targetSelected = !TextUtils.isEmpty(targetPackageName);
+        boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
+        boolean lsposedInstalled = LsposedDiagnosticBridge.isManagerInstalled(this);
         boolean internalEnabled = isInternalRootTestingEnabled();
         boolean running = rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning();
 
         if (settingsRootTargetStatusView != null) {
-            if (!targetSelected) {
+            if (lsposedMode) {
+                settingsRootTargetStatusView.setText(getString(
+                        lsposedInstalled
+                                ? R.string.route_root_lsposed_scope_status
+                                : R.string.route_root_lsposed_missing_status,
+                        RootDiagnosticModule.summarizeEnabled(config)
+                ) + "\n" + getString(R.string.route_root_diagnostic_auto_hint));
+            } else if (!targetSelected) {
                 settingsRootTargetStatusView.setText(R.string.route_root_target_none);
             } else {
                 settingsRootTargetStatusView.setText(getString(
@@ -2766,6 +2786,9 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (settingsRootPickTargetButton != null) {
             settingsRootPickTargetButton.setEnabled(internalEnabled && !running);
+            settingsRootPickTargetButton.setText(lsposedInstalled
+                    ? R.string.route_root_open_lsposed_scope_button
+                    : R.string.route_root_lsposed_missing_button);
         }
         setModuleSettingsButtonState(settingsRootNmeaSettingsButton, internalEnabled && !running, RootDiagnosticModule.LOCATION_NMEA);
         setModuleSettingsButtonState(settingsRootSignalSettingsButton, internalEnabled && !running, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
@@ -2810,92 +2833,35 @@ public class RouteRunActivity extends BaseActivity {
                 + "\n" + settings.summarize(module));
     }
 
-    private void showRootTargetApkPicker() {
+    private void openLsposedScopeSelectorFromRootPanel() {
         if (!isInternalRootTestingEnabled()) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
             return;
         }
         if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
-            GoUtils.DisplayToast(this, "请先结束当前诊断会话。");
+            GoUtils.DisplayToast(this, "诊断运行中，结束路线模拟后再修改LSPosed作用域。");
             return;
         }
-        List<RootTargetApkItem> items = buildRootTargetApkItems();
-        if (items.isEmpty()) {
-            GoUtils.DisplayToast(this, "未读取到可选择的已安装应用。");
+        if (!LsposedDiagnosticBridge.isManagerInstalled(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.route_root_lsposed_missing_title)
+                    .setMessage(R.string.route_root_lsposed_missing_message)
+                    .setPositiveButton(R.string.route_link_settings_confirm, null)
+                    .show();
+            appendRootAudit("打开LSPosed作用域失败: managerInstalled=false");
             return;
         }
-        View dialogView = getLayoutInflater().inflate(R.layout.dialog_searchable_picker, null);
-        EditText searchInput = dialogView.findViewById(R.id.searchable_picker_input);
-        ListView listView = dialogView.findViewById(R.id.searchable_picker_list);
-        LinearLayout letterRail = dialogView.findViewById(R.id.searchable_picker_letter_rail);
-        List<RootTargetApkItem> filteredItems = new ArrayList<>(items);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
-        fillRootTargetAdapter(adapter, filteredItems);
-        listView.setAdapter(adapter);
-        updatePickerLetterRail(letterRail, listView, filteredItems);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.route_root_pick_target_button)
-                .setView(dialogView)
-                .setNegativeButton(R.string.route_link_settings_cancel, null)
-                .create();
-        dialog.setOnShowListener(ignored -> resizeDialogWindow(dialog, 0.86f, 0.72f));
-        listView.setOnItemClickListener((parent, view, position, id) -> {
-            if (filteredItems.isEmpty()) {
-                return;
-            }
-            dialog.dismiss();
-            selectRootTargetApk(filteredItems.get(position));
-        });
-        searchInput.addTextChangedListener(new SimpleTextWatcher() {
-            @Override
-            public void afterTextChanged(Editable editable) {
-                filterRootTargetItems(editable == null ? "" : editable.toString(), items, filteredItems, adapter);
-                updatePickerLetterRail(letterRail, listView, filteredItems);
-            }
-        });
-        dialog.show();
-    }
-
-    @NonNull
-    private List<RootTargetApkItem> buildRootTargetApkItems() {
-        List<RootTargetApkItem> items = new ArrayList<>();
-        PackageManager packageManager = getPackageManager();
-        try {
-            List<ApplicationInfo> applications = packageManager.getInstalledApplications(PackageManager.GET_META_DATA);
-            for (ApplicationInfo applicationInfo : applications) {
-                if (applicationInfo == null || TextUtils.isEmpty(applicationInfo.packageName)) {
-                    continue;
-                }
-                String label = resolveAppLabel(packageManager, applicationInfo);
-                String versionName = resolveAppVersion(packageManager, applicationInfo.packageName);
-                boolean systemApp = (applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-                items.add(new RootTargetApkItem(
-                        label,
-                        applicationInfo.packageName,
-                        versionName,
-                        systemApp,
-                        SearchSortUtils.buildSortKey(label + applicationInfo.packageName)
-                ));
-            }
-        } catch (Exception exception) {
-            XLog.e("Root target APK list failed: " + exception.getClass().getSimpleName());
+        if (rootFeatureConfigStore != null) {
+            RootFeatureConfig config = rootFeatureConfigStore.setInjectionFramework(
+                    RootFeatureConfig.InjectionFramework.LSPOSED
+            );
+            applyRootFeatureConfig(config, "lsposed_scope_open", true);
         }
-        items.sort(Comparator.comparing(RootTargetApkItem::getSortKey));
-        return items;
-    }
-
-    private void selectRootTargetApk(@NonNull RootTargetApkItem item) {
-        if (rootFeatureConfigStore == null) {
-            return;
-        }
-        RootFeatureConfig config = rootFeatureConfigStore.setTargetPackage(item.packageName);
-        applyRootFeatureConfig(config, "target_" + item.packageName, true);
-        appendRootAudit("选择目标APK: label=" + item.label
-                + ", package=" + item.packageName
-                + ", version=" + item.versionName
-                + ", system=" + item.systemApp);
-        GoUtils.DisplayToast(this, "已选择目标APK：" + item.packageName);
+        boolean opened = LsposedDiagnosticBridge.openManager(this);
+        appendRootAudit("打开LSPosed作用域选择: opened=" + opened);
+        GoUtils.DisplayToast(this, opened
+                ? getString(R.string.route_root_lsposed_scope_opened)
+                : getString(R.string.route_root_lsposed_open_failed));
     }
 
     private void showRootModuleSettingsDialog(@NonNull RootDiagnosticModule module) {
@@ -3148,11 +3114,16 @@ public class RouteRunActivity extends BaseActivity {
 
     private void confirmStartRootDiagnosticSession() {
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
-        if (TextUtils.isEmpty(config.getTargetPackageName())) {
+        boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
+        if (!lsposedMode && TextUtils.isEmpty(config.getTargetPackageName())) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_diagnostic_need_target));
             return;
         }
-        if (!rootTestSessionConfirmed || !rootShellAuthorized) {
+        if (lsposedMode && !LsposedDiagnosticBridge.isManagerInstalled(this)) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_lsposed_missing_status, ""));
+            return;
+        }
+        if (!rootTestSessionConfirmed || (!lsposedMode && !rootShellAuthorized)) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_diagnostic_need_su));
             return;
         }
@@ -3164,7 +3135,7 @@ public class RouteRunActivity extends BaseActivity {
                 .setTitle(R.string.route_root_diagnostic_start_title)
                 .setMessage(getString(
                         R.string.route_root_diagnostic_start_message,
-                        config.getTargetPackageName(),
+                        lsposedMode ? LsposedDiagnosticBridge.SCOPE_TARGET_LABEL : config.getTargetPackageName(),
                         RootDiagnosticModule.summarizeEnabled(config)
                 ))
                 .setPositiveButton(R.string.route_link_settings_confirm, (dialog, which) -> startRootDiagnosticSession())
@@ -3231,13 +3202,20 @@ public class RouteRunActivity extends BaseActivity {
             return;
         }
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
-        if (TextUtils.isEmpty(config.getTargetPackageName())
+        boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
+        if ((!lsposedMode && TextUtils.isEmpty(config.getTargetPackageName()))
                 || !config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
                 || RootDiagnosticModule.enabledIn(config).isEmpty()) {
             return;
         }
-        if (!rootTestSessionConfirmed || !rootShellAuthorized) {
-            GoUtils.DisplayToast(this, "目标APK诊断未启动：请先在Root设置中确认测试会话并完成Root授权。");
+        if (lsposedMode && !LsposedDiagnosticBridge.isManagerInstalled(this)) {
+            GoUtils.DisplayToast(this, "目标APK诊断未启动：未检测到LSPosed管理器。");
+            return;
+        }
+        if (!rootTestSessionConfirmed || (!lsposedMode && !rootShellAuthorized)) {
+            GoUtils.DisplayToast(this, lsposedMode
+                    ? "目标APK诊断未启动：请先确认测试会话，并在LSPosed中启用本模块作用域。"
+                    : "目标APK诊断未启动：请先在Root设置中确认测试会话并完成Root授权。");
             return;
         }
         boolean started = startRootDiagnosticSession(false);
@@ -5475,34 +5453,6 @@ public class RouteRunActivity extends BaseActivity {
         }
     }
 
-    private static final class RootTargetApkItem implements PickerIndexable {
-        private final String label;
-        private final String packageName;
-        private final String versionName;
-        private final boolean systemApp;
-        private final String sortKey;
-
-        private RootTargetApkItem(
-                @NonNull String label,
-                @NonNull String packageName,
-                @NonNull String versionName,
-                boolean systemApp,
-                @NonNull String sortKey
-        ) {
-            this.label = label;
-            this.packageName = packageName;
-            this.versionName = versionName;
-            this.systemApp = systemApp;
-            this.sortKey = sortKey;
-        }
-
-        @NonNull
-        @Override
-        public String getSortKey() {
-            return sortKey;
-        }
-    }
-
     private static final class SettingsSection {
         private final View view;
         private final String letter;
@@ -5672,32 +5622,4 @@ public class RouteRunActivity extends BaseActivity {
         fillNfcAdapter(adapter, filteredItems);
     }
 
-    private void fillRootTargetAdapter(ArrayAdapter<String> adapter, List<RootTargetApkItem> items) {
-        adapter.clear();
-        if (items.isEmpty()) {
-            adapter.add(getString(R.string.searchable_picker_empty));
-        } else {
-            for (RootTargetApkItem item : items) {
-                adapter.add(item.label + " · " + item.packageName + " · " + item.versionName);
-            }
-        }
-        adapter.notifyDataSetChanged();
-    }
-
-    private void filterRootTargetItems(
-            String query,
-            List<RootTargetApkItem> sourceItems,
-            List<RootTargetApkItem> filteredItems,
-            ArrayAdapter<String> adapter
-    ) {
-        filteredItems.clear();
-        for (RootTargetApkItem item : sourceItems) {
-            if (SearchSortUtils.matches(query, item.label)
-                    || SearchSortUtils.matches(query, item.packageName)
-                    || SearchSortUtils.matches(query, item.versionName)) {
-                filteredItems.add(item);
-            }
-        }
-        fillRootTargetAdapter(adapter, filteredItems);
-    }
 }

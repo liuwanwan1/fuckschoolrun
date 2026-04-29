@@ -130,4 +130,16 @@ public enum RootDiagnosticModule {
         }
         return builder.toString();
     }
+
+    public static RootDiagnosticModule fromId(String moduleId) {
+        if (moduleId == null) {
+            return null;
+        }
+        for (RootDiagnosticModule module : values()) {
+            if (module.getId().equals(moduleId)) {
+                return module;
+            }
+        }
+        return null;
+    }
 }

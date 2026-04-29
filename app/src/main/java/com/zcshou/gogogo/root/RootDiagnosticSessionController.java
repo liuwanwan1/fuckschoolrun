@@ -22,6 +22,7 @@ public final class RootDiagnosticSessionController {
 
     private String activeSessionId = "";
     private String activeTargetPackageName = "";
+    private RootFeatureConfig.InjectionFramework activeInjectionFramework = RootFeatureConfig.InjectionFramework.NONE;
     private long activeStartedAtMillis;
     private List<RootDiagnosticModule> activeModules = Collections.emptyList();
     private File activeScriptFile;
@@ -55,12 +56,16 @@ public final class RootDiagnosticSessionController {
         if (isRunning()) {
             return new StartResult(false, activeSessionId, "诊断会话已在运行。", null);
         }
+        boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
         String targetPackageName = config.getTargetPackageName().trim();
-        if (targetPackageName.isEmpty()) {
+        if (!lsposedMode && targetPackageName.isEmpty()) {
             return new StartResult(false, "", "请先选择目标APK。", null);
         }
         if (!config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)) {
-            return new StartResult(false, "", "请先开启Frida应用级动态注入开关。", null);
+            return new StartResult(false, "", "请先开启注入框架开关。", null);
+        }
+        if (lsposedMode && !LsposedDiagnosticBridge.isManagerInstalled(appContext)) {
+            return new StartResult(false, "", "未检测到LSPosed管理器，请先安装并启用LSPosed。", null);
         }
         List<RootDiagnosticModule> modules = RootDiagnosticModule.enabledIn(config);
         if (modules.isEmpty()) {
@@ -68,7 +73,10 @@ public final class RootDiagnosticSessionController {
         }
 
         activeSessionId = "diag-" + System.currentTimeMillis();
-        activeTargetPackageName = targetPackageName;
+        activeTargetPackageName = targetPackageName.isEmpty()
+                ? LsposedDiagnosticBridge.SCOPE_TARGET_LABEL
+                : targetPackageName;
+        activeInjectionFramework = config.getInjectionFramework();
         activeStartedAtMillis = System.currentTimeMillis();
         activeModules = new ArrayList<>(modules);
         events.clear();
@@ -78,6 +86,26 @@ public final class RootDiagnosticSessionController {
         latestJsonReportFile = null;
 
         try {
+            if (lsposedMode) {
+                activeScriptFile = null;
+                activeManualAttachCommand = "请在LSPosed管理器中启用本模块，并在作用域中勾选目标APK。";
+                activeManualSpawnCommand = "";
+                recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_scope_ready",
+                        "LSPosed作用域诊断已准备；目标应用由LSPosed作用域选择控制。");
+                for (RootDiagnosticModule module : modules) {
+                    recordEvent(module.getId(), "module_enabled",
+                            module.getTitle() + " -> " + module.getHookSurface() + "；设置：" + settings.summarize(module));
+                }
+                LsposedDiagnosticBridge.broadcastStart(appContext, activeSessionId, modules, settings);
+                recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_broadcast_start",
+                        "已广播诊断开始信号到LSPosed作用域进程。");
+                return new StartResult(
+                        true,
+                        activeSessionId,
+                        "LSPosed作用域诊断已启动，请确认目标APK已在LSPosed中勾选并重启目标进程。",
+                        null
+                );
+            }
             File diagnosticDir = getDiagnosticDir();
             activeScriptFile = new File(diagnosticDir, activeSessionId + ".frida.js");
             String script = scriptBuilder.build(activeSessionId, targetPackageName, modules, settings);
@@ -120,6 +148,7 @@ public final class RootDiagnosticSessionController {
                     exception.getClass().getSimpleName() + ": " + exception.getMessage());
             activeSessionId = "";
             activeTargetPackageName = "";
+            activeInjectionFramework = RootFeatureConfig.InjectionFramework.NONE;
             activeStartedAtMillis = 0L;
             activeModules = Collections.emptyList();
             activeScriptFile = null;
@@ -135,8 +164,15 @@ public final class RootDiagnosticSessionController {
         if (!isRunning()) {
             return new FinishResult(false, "当前没有运行中的诊断会话。", latestReport, latestReportFile, latestJsonReportFile);
         }
-        String stopMessage = fridaInjectionGateway.stopSession();
-        recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "frida_stop", stopMessage);
+        String stopMessage;
+        if (activeInjectionFramework == RootFeatureConfig.InjectionFramework.LSPOSED) {
+            LsposedDiagnosticBridge.broadcastStop(appContext, activeSessionId);
+            stopMessage = "已广播LSPosed作用域诊断停止信号。";
+            recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_broadcast_stop", stopMessage);
+        } else {
+            stopMessage = fridaInjectionGateway.stopSession();
+            recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "frida_stop", stopMessage);
+        }
         recordEvent(RootDiagnosticEvent.MODULE_REPORT, "session_finished", "开始生成目标APK诊断报告。");
 
         RootDiagnosticSessionReport report = new RootDiagnosticSessionReport(
@@ -166,6 +202,7 @@ public final class RootDiagnosticSessionController {
 
         activeSessionId = "";
         activeTargetPackageName = "";
+        activeInjectionFramework = RootFeatureConfig.InjectionFramework.NONE;
         activeStartedAtMillis = 0L;
         activeModules = Collections.emptyList();
         activeScriptFile = null;

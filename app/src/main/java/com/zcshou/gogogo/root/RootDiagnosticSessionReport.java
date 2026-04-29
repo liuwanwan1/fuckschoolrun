@@ -73,7 +73,7 @@ public final class RootDiagnosticSessionReport {
         builder.append("会话ID：").append(sessionId).append('\n');
         builder.append("开始时间：").append(formatTime(startedAtMillis)).append('\n');
         builder.append("结束时间：").append(formatTime(endedAtMillis)).append('\n');
-        builder.append("Frida脚本：").append(scriptPath).append('\n');
+        builder.append("注入控制：").append(scriptPath.isEmpty() ? "LSPosed作用域广播" : scriptPath).append('\n');
         builder.append("手动attach命令：").append(manualAttachCommand).append('\n');
         builder.append("进程启动注入命令：").append(manualSpawnCommand).append("\n\n");
 
@@ -94,7 +94,7 @@ public final class RootDiagnosticSessionReport {
             int bypassEvents = countEvents(module, "return_override", "value_override", "data_blocked");
             builder.append("- ").append(module.getTitle()).append("：");
             if (hookEvents == 0 && bypassEvents == 0) {
-                builder.append("本次未捕获到目标进程调用，需在目标APK启动后重跑或使用进程启动注入命令。");
+                builder.append("本次未捕获到目标进程调用，需确认目标APK已在LSPosed作用域中勾选并重启目标进程后重跑。");
             } else {
                 builder.append("捕获关键事件 ").append(hookEvents + bypassEvents).append(" 条");
                 if (bypassEvents > 0) {

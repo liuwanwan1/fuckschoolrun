@@ -158,6 +158,7 @@ dependencies {
     implementation 'com.elvishew:xlog:1.11.1'
     implementation 'io.noties.markwon:core:4.6.2'
     implementation files('libs/BaiduLBS_Android.jar')
+    compileOnly 'de.robv.android.xposed:api:82'
     debugImplementation project(':algorithm-test-kit')
     debugImplementation project(':sensor-test-engine')
     testImplementation 'junit:junit:4.13.2'

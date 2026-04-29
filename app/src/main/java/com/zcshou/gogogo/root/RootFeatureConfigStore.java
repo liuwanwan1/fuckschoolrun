@@ -65,6 +65,13 @@ public final class RootFeatureConfigStore {
         return config;
     }
 
+    @NonNull
+    public RootFeatureConfig setInjectionFramework(@NonNull RootFeatureConfig.InjectionFramework framework) {
+        RootFeatureConfig config = load().withInjectionFramework(framework);
+        save(config);
+        return config;
+    }
+
     public void registerListener(@NonNull OnConfigChangedListener listener) {
         if (!listeners.contains(listener)) {
             listeners.add(listener);

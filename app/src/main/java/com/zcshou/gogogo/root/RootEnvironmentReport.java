@@ -79,6 +79,10 @@ public final class RootEnvironmentReport {
         return !hookFrameworkPackages.isEmpty();
     }
 
+    public boolean hasLsposedManager() {
+        return hookFrameworkPackages.contains(LsposedDiagnosticBridge.LSPOSED_MANAGER_PACKAGE);
+    }
+
     @NonNull
     public String summarizeForAudit() {
         return "rootManagers=" + joinOrNone(rootManagerPackages)

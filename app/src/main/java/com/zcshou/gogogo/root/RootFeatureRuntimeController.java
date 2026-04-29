@@ -1,17 +1,26 @@
 package com.acooldog.toolbox.root;
 
+import android.content.Context;
+
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.EnumMap;
 
 public final class RootFeatureRuntimeController {
+    private final Context appContext;
     private final FridaInjectionGateway fridaInjectionGateway;
 
     public RootFeatureRuntimeController() {
-        this(new FridaInjectionGateway());
+        this(null, new FridaInjectionGateway());
     }
 
-    RootFeatureRuntimeController(@NonNull FridaInjectionGateway fridaInjectionGateway) {
+    public RootFeatureRuntimeController(@NonNull Context context) {
+        this(context.getApplicationContext(), new FridaInjectionGateway());
+    }
+
+    RootFeatureRuntimeController(@Nullable Context context, @NonNull FridaInjectionGateway fridaInjectionGateway) {
+        this.appContext = context;
         this.fridaInjectionGateway = fridaInjectionGateway;
     }
 
@@ -27,26 +36,38 @@ public final class RootFeatureRuntimeController {
                 continue;
             }
             if (feature == RootFeature.FRIDA_DYNAMIC_INJECTION) {
-                FridaInjectionGateway.ReloadResult result = fridaInjectionGateway.reload(config);
-                states.put(feature, result.isLoaded()
-                        ? RootFeatureRuntimeReport.State.LOADED
-                        : RootFeatureRuntimeReport.State.BLOCKED);
-                messages.put(feature, result.getMessage());
+                if (config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED) {
+                    boolean managerInstalled = appContext != null && LsposedDiagnosticBridge.isManagerInstalled(appContext);
+                    states.put(feature, managerInstalled
+                            ? RootFeatureRuntimeReport.State.LOADED
+                            : RootFeatureRuntimeReport.State.BLOCKED);
+                    messages.put(feature, managerInstalled
+                            ? "LSPosed作用域模式已准备，请在LSPosed管理器中勾选目标APK。"
+                            : "未检测到LSPosed管理器，无法进入作用域注入模式。");
+                } else {
+                    FridaInjectionGateway.ReloadResult result = fridaInjectionGateway.reload(config);
+                    states.put(feature, result.isLoaded()
+                            ? RootFeatureRuntimeReport.State.LOADED
+                            : RootFeatureRuntimeReport.State.BLOCKED);
+                    messages.put(feature, result.getMessage());
+                }
                 continue;
             }
             if (feature.isRestrictedExecution()) {
-                if (!targetSelected) {
+                if (!targetSelected && config.getInjectionFramework() != RootFeatureConfig.InjectionFramework.LSPOSED) {
                     states.put(feature, RootFeatureRuntimeReport.State.BLOCKED);
                     messages.put(feature, "未选择目标APK，单目标Hook计划未加载。");
                     continue;
                 }
                 if (!config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)) {
                     states.put(feature, RootFeatureRuntimeReport.State.BLOCKED);
-                    messages.put(feature, "Frida框架开关关闭，无法进入单目标诊断计划。");
+                    messages.put(feature, "注入框架开关关闭，无法进入目标诊断计划。");
                     continue;
                 }
                 states.put(feature, RootFeatureRuntimeReport.State.LOADED);
-                messages.put(feature, "已加入目标APK诊断计划，仅在 " + config.getTargetPackageName() + " 进程内生效。");
+                messages.put(feature, config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED
+                        ? "已加入LSPosed作用域诊断计划，仅对LSPosed中勾选的应用进程生效。"
+                        : "已加入目标APK诊断计划，仅在 " + config.getTargetPackageName() + " 进程内生效。");
                 continue;
             }
             states.put(feature, RootFeatureRuntimeReport.State.LOADED);
