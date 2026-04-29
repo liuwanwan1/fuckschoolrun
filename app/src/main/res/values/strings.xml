@@ -417,8 +417,7 @@
     <string name="route_root_target_none">目标APK：未选择。所有Hook和模拟操作在未选择目标时保持禁用。</string>
     <string name="route_root_target_format">目标APK：%1$s\n包名：%2$s\n版本：%3$s\n模块：%4$s</string>
     <string name="route_root_pick_target_button">选择目标APK</string>
-    <string name="route_root_start_test_button">开始测试</string>
-    <string name="route_root_end_test_button">结束测试</string>
+    <string name="route_root_module_settings_button">模块设置</string>
     <string name="route_root_diagnostic_log_empty">诊断日志：暂无事件。</string>
     <string name="route_root_diagnostic_need_target">请先选择目标APK。</string>
     <string name="route_root_diagnostic_need_su">请先确认测试会话并完成Root授权探测。</string>
@@ -429,6 +428,7 @@
     <string name="route_root_diagnostic_finished_title">诊断报告</string>
     <string name="route_root_diagnostic_finished">诊断已结束：%1$s</string>
     <string name="route_root_diagnostic_report_saved">报告已保存：%1$s</string>
+    <string name="route_root_diagnostic_auto_hint">目标APK诊断会随路线模拟开始自动启动，暂停或完成模拟时自动结束并生成报告。</string>
     <string name="route_algorithm_lab_title">算法验证实验室</string>
     <string name="route_algorithm_lab_summary">步频算法模拟器、GPS轨迹生成器、传感器一致性验证和测试数据管理。仅DEBUG内测版本可用，生成数据不注入系统。</string>
     <string name="route_algorithm_lab_button">打开算法验证实验室</string>

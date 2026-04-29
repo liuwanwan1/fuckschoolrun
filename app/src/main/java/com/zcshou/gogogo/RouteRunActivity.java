@@ -95,6 +95,8 @@ import com.acooldog.toolbox.route.presentation.RouteRunViewModel;
 import com.acooldog.toolbox.root.RootEnvironmentInspector;
 import com.acooldog.toolbox.root.RootEnvironmentReport;
 import com.acooldog.toolbox.root.RootDiagnosticModule;
+import com.acooldog.toolbox.root.RootDiagnosticSettings;
+import com.acooldog.toolbox.root.RootDiagnosticSettingsStore;
 import com.acooldog.toolbox.root.RootDiagnosticSessionController;
 import com.acooldog.toolbox.root.RootDiagnosticSessionReport;
 import com.acooldog.toolbox.root.RootFeature;
@@ -188,9 +190,11 @@ public class RouteRunActivity extends BaseActivity {
     private RootFeatureConfigStore rootFeatureConfigStore;
     private RootFeatureRuntimeController rootFeatureRuntimeController;
     private RootDiagnosticSessionController rootDiagnosticSessionController;
+    private RootDiagnosticSettingsStore rootDiagnosticSettingsStore;
     private RootEnvironmentReport latestRootEnvironmentReport;
     private RootFeatureConfig latestRootFeatureConfig;
     private RootFeatureRuntimeReport latestRootFeatureRuntimeReport;
+    private RootDiagnosticSettings latestRootDiagnosticSettings;
     private RootDiagnosticSessionReport latestRootDiagnosticReport;
     private boolean rootTestSessionConfirmed;
     private boolean rootShellAuthorized;
@@ -225,8 +229,12 @@ public class RouteRunActivity extends BaseActivity {
     private Button settingsRootConfirmSessionButton;
     private Button settingsRootRequestSuButton;
     private Button settingsRootPickTargetButton;
-    private Button settingsRootStartDiagnosticButton;
-    private Button settingsRootEndDiagnosticButton;
+    private Button settingsRootNmeaSettingsButton;
+    private Button settingsRootSignalSettingsButton;
+    private Button settingsRootBypassSettingsButton;
+    private Button settingsRootHookSettingsButton;
+    private Button settingsRootServiceSettingsButton;
+    private Button settingsRootSensorSettingsButton;
     private Button settingsRootReloadConfigButton;
     private Button settingsRootGenerateGmButton;
     private Button settingsAlgorithmLabButton;
@@ -404,8 +412,10 @@ public class RouteRunActivity extends BaseActivity {
         rootFeatureConfigStore = new RootFeatureConfigStore(getApplicationContext());
         rootFeatureRuntimeController = new RootFeatureRuntimeController();
         rootDiagnosticSessionController = new RootDiagnosticSessionController(getApplicationContext());
+        rootDiagnosticSettingsStore = new RootDiagnosticSettingsStore(getApplicationContext());
         latestRootFeatureConfig = rootFeatureConfigStore.load();
         latestRootFeatureRuntimeReport = rootFeatureRuntimeController.reload(latestRootFeatureConfig);
+        latestRootDiagnosticSettings = rootDiagnosticSettingsStore.load();
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         stepCounterSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER);
         stepDetectorSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR);
@@ -583,6 +593,7 @@ public class RouteRunActivity extends BaseActivity {
             }
             lastHandledCompletionToken = token;
             stopLinkedSimulationState();
+            finishRootDiagnosticSession(true);
             prefsStore.setRouteCompletionPending(true);
             completionNoticePending = true;
             if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) {
@@ -951,6 +962,7 @@ public class RouteRunActivity extends BaseActivity {
             hideCompletionOverlay();
             hideFloatingWindow();
             viewModel.pauseSimulation();
+            finishRootDiagnosticSession(true);
             renderToggleButtonState();
             GoUtils.DisplayToast(this, getString(R.string.route_simulation_paused));
             return;
@@ -975,6 +987,7 @@ public class RouteRunActivity extends BaseActivity {
             ensureServiceStarted(routeDefinition, resolveSimulationSeedPoint(routeDefinition, resumeCurrentRoute));
             viewModel.startSimulation(config, new ServiceGateway());
             dispatchPendingSimulationNfcPayloadIfNeeded();
+            maybeStartRootDiagnosticForSimulation();
             renderToggleButtonState();
             GoUtils.DisplayToast(this, getString(
                     resumeCurrentRoute ? R.string.route_simulation_resumed : R.string.route_simulation_started
@@ -996,6 +1009,7 @@ public class RouteRunActivity extends BaseActivity {
         }
         hideCompletionOverlay();
         viewModel.pauseSimulation();
+        finishRootDiagnosticSession(true);
         renderToggleButtonState();
         updateFloatingWindowControlsState();
         GoUtils.DisplayToast(this, getString(R.string.route_simulation_paused));
@@ -2165,8 +2179,12 @@ public class RouteRunActivity extends BaseActivity {
         settingsRootConfirmSessionButton = dialogView.findViewById(R.id.btn_dialog_root_confirm_session);
         settingsRootRequestSuButton = dialogView.findViewById(R.id.btn_dialog_root_request_su);
         settingsRootPickTargetButton = dialogView.findViewById(R.id.btn_dialog_root_pick_target);
-        settingsRootStartDiagnosticButton = dialogView.findViewById(R.id.btn_dialog_root_start_diagnostic);
-        settingsRootEndDiagnosticButton = dialogView.findViewById(R.id.btn_dialog_root_end_diagnostic);
+        settingsRootNmeaSettingsButton = dialogView.findViewById(R.id.btn_dialog_root_nmea_settings);
+        settingsRootSignalSettingsButton = dialogView.findViewById(R.id.btn_dialog_root_signal_settings);
+        settingsRootBypassSettingsButton = dialogView.findViewById(R.id.btn_dialog_root_bypass_settings);
+        settingsRootHookSettingsButton = dialogView.findViewById(R.id.btn_dialog_root_hook_settings);
+        settingsRootServiceSettingsButton = dialogView.findViewById(R.id.btn_dialog_root_service_settings);
+        settingsRootSensorSettingsButton = dialogView.findViewById(R.id.btn_dialog_root_sensor_settings);
         settingsRootReloadConfigButton = dialogView.findViewById(R.id.btn_dialog_root_reload_config);
         settingsRootGenerateGmButton = dialogView.findViewById(R.id.btn_dialog_root_generate_gm);
         settingsAlgorithmLabButton = dialogView.findViewById(R.id.btn_dialog_algorithm_lab);
@@ -2244,12 +2262,7 @@ public class RouteRunActivity extends BaseActivity {
         if (settingsRootPickTargetButton != null) {
             settingsRootPickTargetButton.setOnClickListener(v -> showRootTargetApkPicker());
         }
-        if (settingsRootStartDiagnosticButton != null) {
-            settingsRootStartDiagnosticButton.setOnClickListener(v -> confirmStartRootDiagnosticSession());
-        }
-        if (settingsRootEndDiagnosticButton != null) {
-            settingsRootEndDiagnosticButton.setOnClickListener(v -> finishRootDiagnosticSession());
-        }
+        bindRootModuleSettingsButtons();
         bindRootFeatureSwitches();
         if (settingsRootReloadConfigButton != null) {
             settingsRootReloadConfigButton.setOnClickListener(v -> reloadRootFeatureConfig("manual_reload", true));
@@ -2464,8 +2477,12 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootConfirmSessionButton = null;
             settingsRootRequestSuButton = null;
             settingsRootPickTargetButton = null;
-            settingsRootStartDiagnosticButton = null;
-            settingsRootEndDiagnosticButton = null;
+            settingsRootNmeaSettingsButton = null;
+            settingsRootSignalSettingsButton = null;
+            settingsRootBypassSettingsButton = null;
+            settingsRootHookSettingsButton = null;
+            settingsRootServiceSettingsButton = null;
+            settingsRootSensorSettingsButton = null;
             settingsRootReloadConfigButton = null;
             settingsRootGenerateGmButton = null;
             settingsAlgorithmLabButton = null;
@@ -2558,6 +2575,22 @@ public class RouteRunActivity extends BaseActivity {
         bindRootFeatureSwitch(settingsRootHookSwitch, RootFeature.TARGET_APP_HOOK);
         bindRootFeatureSwitch(settingsRootServiceLogSwitch, RootFeature.SYSTEM_SERVICE_STREAM_LOG);
         bindRootFeatureSwitch(settingsRootSensorSwitch, RootFeature.SENSOR_EVENT_INJECTION);
+    }
+
+    private void bindRootModuleSettingsButtons() {
+        bindRootModuleSettingsButton(settingsRootNmeaSettingsButton, RootDiagnosticModule.LOCATION_NMEA);
+        bindRootModuleSettingsButton(settingsRootSignalSettingsButton, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
+        bindRootModuleSettingsButton(settingsRootBypassSettingsButton, RootDiagnosticModule.DETECTION_BYPASS);
+        bindRootModuleSettingsButton(settingsRootHookSettingsButton, RootDiagnosticModule.TARGET_APP_HOOK);
+        bindRootModuleSettingsButton(settingsRootServiceSettingsButton, RootDiagnosticModule.SERVICE_STREAM);
+        bindRootModuleSettingsButton(settingsRootSensorSettingsButton, RootDiagnosticModule.SENSOR_INJECTION);
+    }
+
+    private void bindRootModuleSettingsButton(@Nullable Button button, @NonNull RootDiagnosticModule module) {
+        if (button == null) {
+            return;
+        }
+        button.setOnClickListener(v -> showRootModuleSettingsDialog(module));
     }
 
     private void bindRootFeatureSwitch(@Nullable Switch switchView, @NonNull RootFeature feature) {
@@ -2717,7 +2750,6 @@ public class RouteRunActivity extends BaseActivity {
         boolean targetSelected = !TextUtils.isEmpty(targetPackageName);
         boolean internalEnabled = isInternalRootTestingEnabled();
         boolean running = rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning();
-        boolean hasModules = !RootDiagnosticModule.enabledIn(config).isEmpty();
 
         if (settingsRootTargetStatusView != null) {
             if (!targetSelected) {
@@ -2729,24 +2761,18 @@ public class RouteRunActivity extends BaseActivity {
                         targetPackageName,
                         resolveAppVersion(targetPackageName),
                         RootDiagnosticModule.summarizeEnabled(config)
-                ));
+                ) + "\n" + getString(R.string.route_root_diagnostic_auto_hint));
             }
         }
         if (settingsRootPickTargetButton != null) {
             settingsRootPickTargetButton.setEnabled(internalEnabled && !running);
         }
-        if (settingsRootStartDiagnosticButton != null) {
-            settingsRootStartDiagnosticButton.setEnabled(internalEnabled
-                    && rootTestSessionConfirmed
-                    && rootShellAuthorized
-                    && targetSelected
-                    && config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
-                    && hasModules
-                    && !running);
-        }
-        if (settingsRootEndDiagnosticButton != null) {
-            settingsRootEndDiagnosticButton.setEnabled(running);
-        }
+        setModuleSettingsButtonState(settingsRootNmeaSettingsButton, internalEnabled && !running, RootDiagnosticModule.LOCATION_NMEA);
+        setModuleSettingsButtonState(settingsRootSignalSettingsButton, internalEnabled && !running, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
+        setModuleSettingsButtonState(settingsRootBypassSettingsButton, internalEnabled && !running, RootDiagnosticModule.DETECTION_BYPASS);
+        setModuleSettingsButtonState(settingsRootHookSettingsButton, internalEnabled && !running, RootDiagnosticModule.TARGET_APP_HOOK);
+        setModuleSettingsButtonState(settingsRootServiceSettingsButton, internalEnabled && !running, RootDiagnosticModule.SERVICE_STREAM);
+        setModuleSettingsButtonState(settingsRootSensorSettingsButton, internalEnabled && !running, RootDiagnosticModule.SENSOR_INJECTION);
         if (settingsRootDiagnosticLogView != null) {
             List<String> lines = rootDiagnosticSessionController == null
                     ? new ArrayList<>()
@@ -2767,6 +2793,23 @@ public class RouteRunActivity extends BaseActivity {
         }
     }
 
+    private void setModuleSettingsButtonState(
+            @Nullable Button button,
+            boolean enabled,
+            @NonNull RootDiagnosticModule module
+    ) {
+        if (button == null) {
+            return;
+        }
+        button.setEnabled(enabled);
+        RootDiagnosticSettings settings = latestRootDiagnosticSettings == null
+                ? RootDiagnosticSettings.defaults()
+                : latestRootDiagnosticSettings;
+        button.setText(getString(R.string.route_root_module_settings_button)
+                + " · " + module.getTitle()
+                + "\n" + settings.summarize(module));
+    }
+
     private void showRootTargetApkPicker() {
         if (!isInternalRootTestingEnabled()) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
@@ -2781,16 +2824,37 @@ public class RouteRunActivity extends BaseActivity {
             GoUtils.DisplayToast(this, "未读取到可选择的已安装应用。");
             return;
         }
-        String[] labels = new String[items.size()];
-        for (int index = 0; index < items.size(); index++) {
-            RootTargetApkItem item = items.get(index);
-            labels[index] = item.label + " · " + item.packageName + " · " + item.versionName;
-        }
-        new AlertDialog.Builder(this)
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_searchable_picker, null);
+        EditText searchInput = dialogView.findViewById(R.id.searchable_picker_input);
+        ListView listView = dialogView.findViewById(R.id.searchable_picker_list);
+        LinearLayout letterRail = dialogView.findViewById(R.id.searchable_picker_letter_rail);
+        List<RootTargetApkItem> filteredItems = new ArrayList<>(items);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+        fillRootTargetAdapter(adapter, filteredItems);
+        listView.setAdapter(adapter);
+        updatePickerLetterRail(letterRail, listView, filteredItems);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.route_root_pick_target_button)
-                .setItems(labels, (dialog, which) -> selectRootTargetApk(items.get(which)))
+                .setView(dialogView)
                 .setNegativeButton(R.string.route_link_settings_cancel, null)
-                .show();
+                .create();
+        dialog.setOnShowListener(ignored -> resizeDialogWindow(dialog, 0.86f, 0.72f));
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            if (filteredItems.isEmpty()) {
+                return;
+            }
+            dialog.dismiss();
+            selectRootTargetApk(filteredItems.get(position));
+        });
+        searchInput.addTextChangedListener(new SimpleTextWatcher() {
+            @Override
+            public void afterTextChanged(Editable editable) {
+                filterRootTargetItems(editable == null ? "" : editable.toString(), items, filteredItems, adapter);
+                updatePickerLetterRail(letterRail, listView, filteredItems);
+            }
+        });
+        dialog.show();
     }
 
     @NonNull
@@ -2834,6 +2898,254 @@ public class RouteRunActivity extends BaseActivity {
         GoUtils.DisplayToast(this, "已选择目标APK：" + item.packageName);
     }
 
+    private void showRootModuleSettingsDialog(@NonNull RootDiagnosticModule module) {
+        if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
+            GoUtils.DisplayToast(this, "诊断运行中，结束路线模拟后再修改模块设置。");
+            return;
+        }
+        RootDiagnosticSettings settings = latestRootDiagnosticSettings == null
+                ? RootDiagnosticSettings.defaults()
+                : latestRootDiagnosticSettings;
+        LinearLayout content = createRootSettingsForm();
+        switch (module) {
+            case LOCATION_NMEA:
+                showLocationModuleSettings(content, settings);
+                break;
+            case RADIO_WIFI_SIGNAL:
+                showSignalModuleSettings(content, settings);
+                break;
+            case DETECTION_BYPASS:
+                showBypassModuleSettings(content, settings);
+                break;
+            case TARGET_APP_HOOK:
+                showTargetHookModuleSettings(content, settings);
+                break;
+            case SERVICE_STREAM:
+                showServiceStreamModuleSettings(content, settings);
+                break;
+            case SENSOR_INJECTION:
+                showSensorModuleSettings(content, settings);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void showLocationModuleSettings(
+            @NonNull LinearLayout content,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        EditText latitudeInput = addRootSettingsEdit(content, "纬度", settings.getLocationLatitude());
+        EditText longitudeInput = addRootSettingsEdit(content, "经度", settings.getLocationLongitude());
+        EditText speedInput = addRootSettingsEdit(content, "速度 m/s", settings.getLocationSpeedMetersPerSecond());
+        EditText satellitesInput = addRootSettingsEdit(content, "卫星数", settings.getLocationSatellites());
+        EditText hdopInput = addRootSettingsEdit(content, "HDOP", settings.getLocationHdop());
+        showRootSettingsDialog(RootDiagnosticModule.LOCATION_NMEA, content, () -> saveRootDiagnosticSettings(
+                settings.withLocation(
+                        parseRootSettingDouble(latitudeInput, "纬度"),
+                        parseRootSettingDouble(longitudeInput, "经度"),
+                        parseRootSettingDouble(speedInput, "速度"),
+                        parseRootSettingInt(satellitesInput, "卫星数"),
+                        parseRootSettingDouble(hdopInput, "HDOP")
+                )
+        ));
+    }
+
+    private void showSignalModuleSettings(
+            @NonNull LinearLayout content,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        EditText bssidInput = addRootSettingsEdit(content, "Wi-Fi BSSID", settings.getWifiBssid());
+        EditText ssidInput = addRootSettingsEdit(content, "Wi-Fi SSID", settings.getWifiSsid());
+        EditText operatorInput = addRootSettingsEdit(content, "运营商MCC/MNC", settings.getNetworkOperator());
+        EditText countryInput = addRootSettingsEdit(content, "网络国家码", settings.getNetworkCountry());
+        showRootSettingsDialog(RootDiagnosticModule.RADIO_WIFI_SIGNAL, content, () -> saveRootDiagnosticSettings(
+                settings.withSignal(
+                        requireRootSettingText(bssidInput, "Wi-Fi BSSID"),
+                        requireRootSettingText(ssidInput, "Wi-Fi SSID"),
+                        requireRootSettingText(operatorInput, "运营商MCC/MNC"),
+                        requireRootSettingText(countryInput, "网络国家码")
+                )
+        ));
+    }
+
+    private void showBypassModuleSettings(
+            @NonNull LinearLayout content,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        Switch rootSwitch = addRootSettingsSwitch(content, "隐藏root文件/命令检测返回", settings.isBypassRootArtifacts());
+        Switch debuggerSwitch = addRootSettingsSwitch(content, "调试器检测返回false", settings.isBypassDebugger());
+        Switch mockSwitch = addRootSettingsSwitch(content, "mock_location读取返回0", settings.isBypassMockLocation());
+        showRootSettingsDialog(RootDiagnosticModule.DETECTION_BYPASS, content, () -> saveRootDiagnosticSettings(
+                settings.withBypass(rootSwitch.isChecked(), debuggerSwitch.isChecked(), mockSwitch.isChecked())
+        ));
+    }
+
+    private void showTargetHookModuleSettings(
+            @NonNull LinearLayout content,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        EditText maxMethodsInput = addRootSettingsEdit(content, "最多Hook布尔检测方法数", settings.getTargetHookMaxMethods());
+        showRootSettingsDialog(RootDiagnosticModule.TARGET_APP_HOOK, content, () -> saveRootDiagnosticSettings(
+                settings.withTargetHookMaxMethods(parseRootSettingInt(maxMethodsInput, "最多Hook方法数"))
+        ));
+    }
+
+    private void showServiceStreamModuleSettings(
+            @NonNull LinearLayout content,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        Switch clipboardSwitch = addRootSettingsSwitch(content, "剪贴板读写返回空/阻断", settings.isServiceClipboardNull());
+        Switch bluetoothSwitch = addRootSettingsSwitch(content, "蓝牙状态返回关闭", settings.isServiceBluetoothDisabled());
+        Switch nfcSwitch = addRootSettingsSwitch(content, "NFC状态返回关闭", settings.isServiceNfcDisabled());
+        showRootSettingsDialog(RootDiagnosticModule.SERVICE_STREAM, content, () -> saveRootDiagnosticSettings(
+                settings.withServiceStream(clipboardSwitch.isChecked(), bluetoothSwitch.isChecked(), nfcSwitch.isChecked())
+        ));
+    }
+
+    private void showSensorModuleSettings(
+            @NonNull LinearLayout content,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        TextView hint = new TextView(this);
+        hint.setText("参考 FUCK-RUN 的正弦波步频模型：每次诊断在范围内随机选择固定步频，范围限制 140-220 SPM。");
+        hint.setTextColor(Color.parseColor("#455A64"));
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        content.addView(hint, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        EditText minCadenceInput = addRootSettingsEdit(content, "最低步频 SPM", settings.getSensorMinCadence());
+        EditText maxCadenceInput = addRootSettingsEdit(content, "最高步频 SPM", settings.getSensorMaxCadence());
+        EditText waveInput = addRootSettingsEdit(content, "Z轴波形振幅", settings.getSensorWaveAmplitude());
+        showRootSettingsDialog(RootDiagnosticModule.SENSOR_INJECTION, content, () -> saveRootDiagnosticSettings(
+                settings.withSensor(
+                        parseRootSettingDouble(minCadenceInput, "最低步频"),
+                        parseRootSettingDouble(maxCadenceInput, "最高步频"),
+                        parseRootSettingDouble(waveInput, "Z轴波形振幅")
+                )
+        ));
+    }
+
+    @NonNull
+    private LinearLayout createRootSettingsForm() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int padding = Math.round(dp(10f));
+        content.setPadding(padding, padding, padding, padding);
+        return content;
+    }
+
+    @NonNull
+    private EditText addRootSettingsEdit(@NonNull LinearLayout content, @NonNull String label, double value) {
+        return addRootSettingsEdit(content, label, String.format(Locale.US, "%.6f", value));
+    }
+
+    @NonNull
+    private EditText addRootSettingsEdit(@NonNull LinearLayout content, @NonNull String label, int value) {
+        return addRootSettingsEdit(content, label, String.valueOf(value));
+    }
+
+    @NonNull
+    private EditText addRootSettingsEdit(@NonNull LinearLayout content, @NonNull String label, @NonNull String value) {
+        TextView labelView = new TextView(this);
+        labelView.setText(label);
+        labelView.setTextColor(Color.parseColor("#455A64"));
+        labelView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        labelParams.topMargin = Math.round(dp(8f));
+        content.addView(labelView, labelParams);
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(value);
+        content.addView(input, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        return input;
+    }
+
+    @NonNull
+    private Switch addRootSettingsSwitch(@NonNull LinearLayout content, @NonNull String label, boolean checked) {
+        Switch switchView = new Switch(this);
+        switchView.setText(label);
+        switchView.setChecked(checked);
+        content.addView(switchView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        return switchView;
+    }
+
+    private void showRootSettingsDialog(
+            @NonNull RootDiagnosticModule module,
+            @NonNull LinearLayout content,
+            @NonNull RootSettingsSaveAction saveAction
+    ) {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(module.getTitle() + "设置")
+                .setView(content)
+                .setPositiveButton(R.string.route_link_settings_confirm, null)
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            resizeDialogWindow(dialog, 0.82f, 0.72f);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                try {
+                    saveAction.save();
+                    dialog.dismiss();
+                } catch (Exception exception) {
+                    GoUtils.DisplayToast(this, exception.getMessage() == null ? "模块设置无效。" : exception.getMessage());
+                }
+            });
+        });
+        dialog.show();
+    }
+
+    private void saveRootDiagnosticSettings(@NonNull RootDiagnosticSettings settings) {
+        latestRootDiagnosticSettings = settings;
+        if (rootDiagnosticSettingsStore != null) {
+            rootDiagnosticSettingsStore.save(settings);
+        }
+        appendRootAudit("更新目标APK诊断模块设置: " + settings.toJson());
+        renderRootDiagnosticPanel();
+        GoUtils.DisplayToast(this, "模块设置已保存。");
+    }
+
+    private double parseRootSettingDouble(@NonNull EditText input, @NonNull String label) {
+        String value = requireRootSettingText(input, label);
+        try {
+            return Double.parseDouble(value);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(label + "必须是数字。");
+        }
+    }
+
+    private int parseRootSettingInt(@NonNull EditText input, @NonNull String label) {
+        String value = requireRootSettingText(input, label);
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(label + "必须是整数。");
+        }
+    }
+
+    @NonNull
+    private String requireRootSettingText(@NonNull EditText input, @NonNull String label) {
+        if (input.getText() == null) {
+            throw new IllegalArgumentException(label + "不能为空。");
+        }
+        String value = input.getText().toString().trim();
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException(label + "不能为空。");
+        }
+        return value;
+    }
+
     private void confirmStartRootDiagnosticSession() {
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
         if (TextUtils.isEmpty(config.getTargetPackageName())) {
@@ -2861,26 +3173,45 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private void startRootDiagnosticSession() {
+        startRootDiagnosticSession(true);
+    }
+
+    private boolean startRootDiagnosticSession(boolean showToast) {
         if (rootDiagnosticSessionController == null) {
-            return;
+            return false;
         }
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        RootDiagnosticSettings settings = latestRootDiagnosticSettings == null
+                ? RootDiagnosticSettings.defaults()
+                : latestRootDiagnosticSettings;
         RootDiagnosticSessionController.StartResult result = rootDiagnosticSessionController.startSession(
                 config,
+                settings,
                 event -> runOnUiThread(this::renderRootDiagnosticPanel)
         );
         appendRootAudit("目标APK诊断启动: target=" + config.getTargetPackageName()
                 + ", modules=" + RootDiagnosticModule.summarizeEnabled(config)
+                + ", settings=" + settings.toJson()
                 + ", result=" + result.getMessage());
         renderRootDiagnosticPanel();
         updateRootAuditLog();
-        GoUtils.DisplayToast(this, result.isStarted()
-                ? getString(R.string.route_root_diagnostic_started, result.getMessage())
-                : result.getMessage());
+        if (showToast) {
+            GoUtils.DisplayToast(this, result.isStarted()
+                    ? getString(R.string.route_root_diagnostic_started, result.getMessage())
+                    : result.getMessage());
+        }
+        return result.isStarted();
     }
 
     private void finishRootDiagnosticSession() {
+        finishRootDiagnosticSession(true);
+    }
+
+    private void finishRootDiagnosticSession(boolean showReport) {
         if (rootDiagnosticSessionController == null) {
+            return;
+        }
+        if (!rootDiagnosticSessionController.isRunning()) {
             return;
         }
         RootDiagnosticSessionController.FinishResult result = rootDiagnosticSessionController.finishSession();
@@ -2888,10 +3219,30 @@ public class RouteRunActivity extends BaseActivity {
         appendRootAudit("目标APK诊断结束: " + result.getMessage());
         renderRootDiagnosticPanel();
         updateRootAuditLog();
-        if (result.getReport() != null) {
+        if (showReport && result.getReport() != null) {
             showRootDiagnosticReport(result);
-        } else {
+        } else if (showReport) {
             GoUtils.DisplayToast(this, result.getMessage());
+        }
+    }
+
+    private void maybeStartRootDiagnosticForSimulation() {
+        if (rootDiagnosticSessionController == null || rootDiagnosticSessionController.isRunning()) {
+            return;
+        }
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        if (TextUtils.isEmpty(config.getTargetPackageName())
+                || !config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
+                || RootDiagnosticModule.enabledIn(config).isEmpty()) {
+            return;
+        }
+        if (!rootTestSessionConfirmed || !rootShellAuthorized) {
+            GoUtils.DisplayToast(this, "目标APK诊断未启动：请先在Root设置中确认测试会话并完成Root授权。");
+            return;
+        }
+        boolean started = startRootDiagnosticSession(false);
+        if (started) {
+            GoUtils.DisplayToast(this, "目标APK诊断已随路线模拟自动启动。");
         }
     }
 
@@ -5174,6 +5525,10 @@ public class RouteRunActivity extends BaseActivity {
         @NonNull String getSortKey();
     }
 
+    private interface RootSettingsSaveAction {
+        void save();
+    }
+
     private abstract static class SimpleTextWatcher implements TextWatcher {
         @Override
         public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -5315,5 +5670,34 @@ public class RouteRunActivity extends BaseActivity {
             }
         }
         fillNfcAdapter(adapter, filteredItems);
+    }
+
+    private void fillRootTargetAdapter(ArrayAdapter<String> adapter, List<RootTargetApkItem> items) {
+        adapter.clear();
+        if (items.isEmpty()) {
+            adapter.add(getString(R.string.searchable_picker_empty));
+        } else {
+            for (RootTargetApkItem item : items) {
+                adapter.add(item.label + " · " + item.packageName + " · " + item.versionName);
+            }
+        }
+        adapter.notifyDataSetChanged();
+    }
+
+    private void filterRootTargetItems(
+            String query,
+            List<RootTargetApkItem> sourceItems,
+            List<RootTargetApkItem> filteredItems,
+            ArrayAdapter<String> adapter
+    ) {
+        filteredItems.clear();
+        for (RootTargetApkItem item : sourceItems) {
+            if (SearchSortUtils.matches(query, item.label)
+                    || SearchSortUtils.matches(query, item.packageName)
+                    || SearchSortUtils.matches(query, item.versionName)) {
+                filteredItems.add(item);
+            }
+        }
+        fillRootTargetAdapter(adapter, filteredItems);
     }
 }

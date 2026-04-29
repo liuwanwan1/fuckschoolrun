@@ -37,4 +37,22 @@ public class RootDiagnosticHookScriptBuilderTest {
         assertFalse(script.contains("safeInstall(\"root_nmea_injection\""));
         assertFalse(script.contains("safeInstall(\"system_service_stream_log\""));
     }
+
+    @Test
+    public void build_sensorModuleUsesCadenceSettingsAndSineWave() {
+        RootDiagnosticSettings settings = RootDiagnosticSettings.defaults().withSensor(160d, 168d, 4.2d);
+
+        String script = new RootDiagnosticHookScriptBuilder().build(
+                "diag-test",
+                "com.example.target",
+                Arrays.asList(RootDiagnosticModule.SENSOR_INJECTION),
+                settings
+        );
+
+        assertTrue(script.contains("sensorMinCadence: 160.000000"));
+        assertTrue(script.contains("sensorMaxCadence: 168.000000"));
+        assertTrue(script.contains("Math.sin(phase)"));
+        assertTrue(script.contains("SensorManager.registerListener"));
+        assertTrue(script.contains("TYPE_STEP_DETECTOR") || script.contains("type === 18"));
+    }
 }

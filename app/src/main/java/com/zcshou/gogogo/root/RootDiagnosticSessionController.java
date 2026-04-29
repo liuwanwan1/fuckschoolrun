@@ -49,6 +49,7 @@ public final class RootDiagnosticSessionController {
     @NonNull
     public synchronized StartResult startSession(
             @NonNull RootFeatureConfig config,
+            @NonNull RootDiagnosticSettings settings,
             @Nullable EventListener listener
     ) {
         if (isRunning()) {
@@ -79,7 +80,7 @@ public final class RootDiagnosticSessionController {
         try {
             File diagnosticDir = getDiagnosticDir();
             activeScriptFile = new File(diagnosticDir, activeSessionId + ".frida.js");
-            String script = scriptBuilder.build(activeSessionId, targetPackageName, modules);
+            String script = scriptBuilder.build(activeSessionId, targetPackageName, modules, settings);
             writeFile(activeScriptFile, script);
             activeManualAttachCommand = scriptBuilder.buildManualAttachCommand(
                     targetPackageName,
@@ -95,7 +96,7 @@ public final class RootDiagnosticSessionController {
                     "目标进程限定为：" + targetPackageName);
             for (RootDiagnosticModule module : modules) {
                 recordEvent(module.getId(), "module_enabled",
-                        module.getTitle() + " -> " + module.getHookSurface());
+                        module.getTitle() + " -> " + module.getHookSurface() + "；设置：" + settings.summarize(module));
             }
             FridaInjectionGateway.StartResult startResult = fridaInjectionGateway.startSession(
                     config,
