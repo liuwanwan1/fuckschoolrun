@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/layout_dialog_settings_root_container"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:visibility="gone">
+
+    <TextView
+        android:id="@+id/tv_dialog_root_testing_notice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFF3E0"
+        android:padding="10dp"
+        android:text="@string/route_root_testing_notice"
+        android:textColor="#5D4037"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:id="@+id/section_settings_root_auth"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_auth_title"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_internal_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_status_checking"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_authorization_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_authorization_not_requested"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_dialog_root_refresh"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:text="@string/route_root_refresh_button" />
+
+            <Button
+                android:id="@+id/btn_dialog_root_confirm_session"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="4dp"
+                android:layout_weight="1"
+                android:text="@string/route_root_confirm_session_button" />
+
+            <Button
+                android:id="@+id/btn_dialog_root_request_su"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:text="@string/route_root_request_su_button" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_dialog_root_switch_non_root"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_switch_non_root_button" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/section_settings_root_environment"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_environment_title"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_hidden_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_developer_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_mock_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_hook_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#455A64"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/section_settings_root_restricted"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_restricted_title"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_feature_nmea_disabled"
+            android:textColor="#5D4037"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_feature_signal_disabled"
+            android:textColor="#5D4037"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_feature_bypass_disabled"
+            android:textColor="#5D4037"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_feature_hook_disabled"
+            android:textColor="#5D4037"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_feature_service_log_disabled"
+            android:textColor="#5D4037"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_feature_sensor_disabled"
+            android:textColor="#5D4037"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/section_settings_root_logs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_audit_title"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_audit_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#F5F7FA"
+            android:padding="8dp"
+            android:text="@string/route_root_audit_empty"
+            android:textColor="#455A64"
+            android:textSize="12sp" />
+    </LinearLayout>
+</LinearLayout>

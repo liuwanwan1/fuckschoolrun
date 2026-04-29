@@ -12,6 +12,8 @@ import java.util.List;
 public final class SimulationPrefsStore {
     public static final String ROUTE_MODE_SPEED = "speed";
     public static final String ROUTE_MODE_CADENCE = "cadence";
+    public static final String ROUTE_SETTINGS_MODE_NON_ROOT = "non_root";
+    public static final String ROUTE_SETTINGS_MODE_ROOT = "root";
     public static final int DEFAULT_NMEA_SATELLITE_COUNT = 8;
     public static final int MIN_NMEA_SATELLITE_COUNT = 1;
     public static final int MAX_NMEA_SATELLITE_COUNT = 12;
@@ -49,6 +51,7 @@ public final class SimulationPrefsStore {
     private static final String KEY_ROUTE_FLOATING_WINDOW_ENABLED = "route_floating_window_enabled";
     private static final String KEY_ROUTE_FLOATING_WINDOW_SCALE = "route_floating_window_scale";
     private static final String KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE = "route_floating_window_button_size";
+    private static final String KEY_ROUTE_SETTINGS_MODE = "route_settings_mode";
     private static final String KEY_NMEA_SATELLITE_COUNT = "nmea_satellite_count";
     private static final String KEY_NMEA_SIGNAL_QUALITY = "nmea_signal_quality";
     private static final String KEY_NMEA_HDOP = "nmea_hdop";
@@ -160,6 +163,20 @@ public final class SimulationPrefsStore {
 
     public float getRouteFloatingWindowButtonSizeDp() {
         return clampFloatingButtonSize(preferences.getFloat(KEY_ROUTE_FLOATING_WINDOW_BUTTON_SIZE, 44f));
+    }
+
+    public String getRouteSettingsMode() {
+        String value = preferences.getString(KEY_ROUTE_SETTINGS_MODE, ROUTE_SETTINGS_MODE_NON_ROOT);
+        return ROUTE_SETTINGS_MODE_ROOT.equals(value) ? ROUTE_SETTINGS_MODE_ROOT : ROUTE_SETTINGS_MODE_NON_ROOT;
+    }
+
+    public void saveRouteSettingsMode(String mode) {
+        preferences.edit()
+                .putString(
+                        KEY_ROUTE_SETTINGS_MODE,
+                        ROUTE_SETTINGS_MODE_ROOT.equals(mode) ? ROUTE_SETTINGS_MODE_ROOT : ROUTE_SETTINGS_MODE_NON_ROOT
+                )
+                .apply();
     }
 
     public int getNmeaSatelliteCount() {

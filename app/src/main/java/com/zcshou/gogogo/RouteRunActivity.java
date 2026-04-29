@@ -89,6 +89,10 @@ import com.acooldog.toolbox.route.domain.model.RouteShareInfo;
 import com.acooldog.toolbox.route.domain.service.RouteEditUtils;
 import com.acooldog.toolbox.route.domain.service.LocationSimulationGateway;
 import com.acooldog.toolbox.route.presentation.RouteRunViewModel;
+import com.acooldog.toolbox.root.RootEnvironmentInspector;
+import com.acooldog.toolbox.root.RootEnvironmentReport;
+import com.acooldog.toolbox.root.RootShellProbeResult;
+import com.acooldog.toolbox.root.RootTestAuditLogger;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
 import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
@@ -163,6 +167,11 @@ public class RouteRunActivity extends BaseActivity {
     private ExecutorService ioExecutor;
     private SimulationPrefsStore prefsStore;
     private SendNfcPayloadUseCase sendNfcPayloadUseCase;
+    private RootEnvironmentInspector rootEnvironmentInspector;
+    private RootTestAuditLogger rootAuditLogger;
+    private RootEnvironmentReport latestRootEnvironmentReport;
+    private boolean rootTestSessionConfirmed;
+    private boolean rootShellAuthorized;
     private SensorManager sensorManager;
     private Sensor stepCounterSensor;
     private Sensor stepDetectorSensor;
@@ -175,6 +184,20 @@ public class RouteRunActivity extends BaseActivity {
     private Ringtone activeReminderRingtone;
     private AlertDialog simulationSettingsDialog;
     private TextView settingsReminderToneView;
+    private TextView settingsNonRootTabView;
+    private TextView settingsRootTabView;
+    private View settingsRootContainer;
+    private TextView settingsRootInternalStatusView;
+    private TextView settingsRootStatusView;
+    private TextView settingsRootAuthorizationStatusView;
+    private TextView settingsRootHiddenStatusView;
+    private TextView settingsRootDeveloperStatusView;
+    private TextView settingsRootMockStatusView;
+    private TextView settingsRootHookStatusView;
+    private TextView settingsRootAuditLogView;
+    private Button settingsRootRefreshButton;
+    private Button settingsRootConfirmSessionButton;
+    private Button settingsRootRequestSuButton;
     private EditText settingsLinkRatioLeftInput;
     private EditText settingsLinkRatioRightInput;
     private EditText settingsStepsPerMeterInput;
@@ -328,6 +351,8 @@ public class RouteRunActivity extends BaseActivity {
         ioExecutor = Executors.newSingleThreadExecutor();
         prefsStore = new SimulationPrefsStore(getApplicationContext());
         sendNfcPayloadUseCase = new SendNfcPayloadUseCase(new AndroidNfcPayloadDispatcher());
+        rootEnvironmentInspector = new RootEnvironmentInspector(getApplicationContext());
+        rootAuditLogger = new RootTestAuditLogger(getApplicationContext());
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         stepCounterSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER);
         stepDetectorSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR);
@@ -2065,9 +2090,24 @@ public class RouteRunActivity extends BaseActivity {
         settingsFloatingWindowButtonSizeView = dialogView.findViewById(R.id.tv_dialog_floating_window_button_size);
         settingsFloatingWindowPreview = dialogView.findViewById(R.id.view_dialog_floating_window_preview);
         settingsReminderToneView = dialogView.findViewById(R.id.tv_dialog_ringtone);
+        settingsNonRootTabView = dialogView.findViewById(R.id.tv_dialog_settings_tab_non_root);
+        settingsRootTabView = dialogView.findViewById(R.id.tv_dialog_settings_tab_root);
+        settingsRootContainer = dialogView.findViewById(R.id.layout_dialog_settings_root_container);
+        settingsRootInternalStatusView = dialogView.findViewById(R.id.tv_dialog_root_internal_status);
+        settingsRootStatusView = dialogView.findViewById(R.id.tv_dialog_root_status);
+        settingsRootAuthorizationStatusView = dialogView.findViewById(R.id.tv_dialog_root_authorization_status);
+        settingsRootHiddenStatusView = dialogView.findViewById(R.id.tv_dialog_root_hidden_status);
+        settingsRootDeveloperStatusView = dialogView.findViewById(R.id.tv_dialog_root_developer_status);
+        settingsRootMockStatusView = dialogView.findViewById(R.id.tv_dialog_root_mock_status);
+        settingsRootHookStatusView = dialogView.findViewById(R.id.tv_dialog_root_hook_status);
+        settingsRootAuditLogView = dialogView.findViewById(R.id.tv_dialog_root_audit_log);
+        settingsRootRefreshButton = dialogView.findViewById(R.id.btn_dialog_root_refresh);
+        settingsRootConfirmSessionButton = dialogView.findViewById(R.id.btn_dialog_root_confirm_session);
+        settingsRootRequestSuButton = dialogView.findViewById(R.id.btn_dialog_root_request_su);
         Button pickRingtoneButton = dialogView.findViewById(R.id.btn_dialog_pick_ringtone);
         Button uploadSettingsButton = dialogView.findViewById(R.id.btn_dialog_upload_settings);
         Button downloadSettingsButton = dialogView.findViewById(R.id.btn_dialog_download_settings);
+        Button rootSwitchNonRootButton = dialogView.findViewById(R.id.btn_dialog_root_switch_non_root);
         View dynamicIntensityContent = dialogView.findViewById(R.id.layout_dialog_dynamic_intensity_content);
         View pathVariationContent = dialogView.findViewById(R.id.layout_dialog_path_variation_content);
         View altitudeVariationContent = dialogView.findViewById(R.id.layout_dialog_altitude_variation_content);
@@ -2108,6 +2148,24 @@ public class RouteRunActivity extends BaseActivity {
         pickRingtoneButton.setOnClickListener(v -> showReminderTonePickerDialog());
         uploadSettingsButton.setOnClickListener(v -> promptUploadSimulationSettings());
         downloadSettingsButton.setOnClickListener(v -> loadSharedSimulationSettings());
+        if (settingsNonRootTabView != null) {
+            settingsNonRootTabView.setOnClickListener(v -> selectSimulationSettingsMode(false));
+        }
+        if (settingsRootTabView != null) {
+            settingsRootTabView.setOnClickListener(v -> selectSimulationSettingsMode(true));
+        }
+        if (settingsRootRefreshButton != null) {
+            settingsRootRefreshButton.setOnClickListener(v -> refreshRootEnvironmentReport(false));
+        }
+        if (settingsRootConfirmSessionButton != null) {
+            settingsRootConfirmSessionButton.setOnClickListener(v -> confirmRootTestSession());
+        }
+        if (settingsRootRequestSuButton != null) {
+            settingsRootRequestSuButton.setOnClickListener(v -> requestRootShellAuthorization());
+        }
+        if (rootSwitchNonRootButton != null) {
+            rootSwitchNonRootButton.setOnClickListener(v -> selectSimulationSettingsMode(false));
+        }
         settingsSatelliteSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -2236,6 +2294,8 @@ public class RouteRunActivity extends BaseActivity {
         updateSettingsContentState(pathVariationContent, settingsPathVariationSwitch.isChecked());
         updateSettingsContentState(altitudeVariationContent, settingsAltitudeVariationSwitch.isChecked());
         updateSettingsContentState(floatingWindowContent, settingsFloatingWindowSwitch.isChecked());
+        selectSimulationSettingsMode(SimulationPrefsStore.ROUTE_SETTINGS_MODE_ROOT.equals(prefsStore.getRouteSettingsMode()));
+        refreshRootEnvironmentReport(false);
 
         simulationSettingsDialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.route_link_settings_title)
@@ -2282,8 +2342,316 @@ public class RouteRunActivity extends BaseActivity {
             settingsFloatingWindowButtonSizeView = null;
             settingsFloatingWindowPreview = null;
             settingsReminderToneView = null;
+            settingsNonRootTabView = null;
+            settingsRootTabView = null;
+            settingsRootContainer = null;
+            settingsRootInternalStatusView = null;
+            settingsRootStatusView = null;
+            settingsRootAuthorizationStatusView = null;
+            settingsRootHiddenStatusView = null;
+            settingsRootDeveloperStatusView = null;
+            settingsRootMockStatusView = null;
+            settingsRootHookStatusView = null;
+            settingsRootAuditLogView = null;
+            settingsRootRefreshButton = null;
+            settingsRootConfirmSessionButton = null;
+            settingsRootRequestSuButton = null;
         });
         simulationSettingsDialog.show();
+    }
+
+    private void selectSimulationSettingsMode(boolean rootMode) {
+        if (prefsStore != null) {
+            prefsStore.saveRouteSettingsMode(
+                    rootMode ? SimulationPrefsStore.ROUTE_SETTINGS_MODE_ROOT : SimulationPrefsStore.ROUTE_SETTINGS_MODE_NON_ROOT
+            );
+        }
+        updateSettingsTabStyle(settingsNonRootTabView, !rootMode);
+        updateSettingsTabStyle(settingsRootTabView, rootMode);
+        setNonRootSettingsSectionsVisible(!rootMode);
+        if (settingsRootContainer != null) {
+            settingsRootContainer.setVisibility(rootMode ? View.VISIBLE : View.GONE);
+        }
+        renderRootEnvironmentReport();
+        if (rootMode && latestRootEnvironmentReport != null && !latestRootEnvironmentReport.hasRootIndicators()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_no_root_switch_hint));
+        }
+    }
+
+    private void updateSettingsTabStyle(@Nullable TextView tabView, boolean selected) {
+        if (tabView == null) {
+            return;
+        }
+        GradientDrawable background = new GradientDrawable();
+        background.setCornerRadius(dp(6f));
+        background.setColor(selected ? ContextCompat.getColor(this, R.color.colorPrimary) : Color.TRANSPARENT);
+        tabView.setBackground(background);
+        tabView.setTextColor(selected ? Color.WHITE : Color.parseColor("#54657E"));
+    }
+
+    private void setNonRootSettingsSectionsVisible(boolean visible) {
+        int visibility = visible ? View.VISIBLE : View.GONE;
+        setSimulationSettingsSectionVisibility(R.id.section_settings_link, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_steps, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_loop, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_nmea, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_dynamic, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_path, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_altitude, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_floating, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_ringtone, visibility);
+        setSimulationSettingsSectionVisibility(R.id.section_settings_share, visibility);
+    }
+
+    private void setSimulationSettingsSectionVisibility(int viewId, int visibility) {
+        View view = findSimulationSettingsDialogViewById(viewId);
+        if (view != null) {
+            view.setVisibility(visibility);
+        }
+    }
+
+    @Nullable
+    private View findSimulationSettingsDialogViewById(int viewId) {
+        if (settingsRootContainer == null) {
+            return null;
+        }
+        View root = settingsRootContainer.getRootView();
+        return root == null ? null : root.findViewById(viewId);
+    }
+
+    private void refreshRootEnvironmentReport(boolean promptWhenNotRoot) {
+        if (rootEnvironmentInspector == null || ioExecutor == null || ioExecutor.isShutdown()) {
+            return;
+        }
+        if (settingsRootStatusView != null) {
+            settingsRootStatusView.setText(R.string.route_root_status_checking);
+        }
+        ioExecutor.execute(() -> {
+            RootEnvironmentReport report = rootEnvironmentInspector.inspect();
+            if (rootAuditLogger != null) {
+                rootAuditLogger.append("刷新Root环境检测: " + report.summarizeForAudit());
+            }
+            runOnUiThread(() -> {
+                latestRootEnvironmentReport = report;
+                renderRootEnvironmentReport();
+                if (promptWhenNotRoot && !report.hasRootIndicators()) {
+                    GoUtils.DisplayToast(this, getString(R.string.route_root_no_root_switch_hint));
+                }
+            });
+        });
+    }
+
+    private void renderRootEnvironmentReport() {
+        boolean internalEnabled = isInternalRootTestingEnabled();
+        if (settingsRootInternalStatusView != null) {
+            settingsRootInternalStatusView.setText(
+                    internalEnabled ? R.string.route_root_internal_enabled : R.string.route_root_internal_disabled
+            );
+        }
+        if (settingsRootRefreshButton != null) {
+            settingsRootRefreshButton.setEnabled(true);
+        }
+        if (settingsRootConfirmSessionButton != null) {
+            settingsRootConfirmSessionButton.setEnabled(internalEnabled);
+        }
+        if (settingsRootRequestSuButton != null) {
+            settingsRootRequestSuButton.setEnabled(internalEnabled && rootTestSessionConfirmed);
+        }
+        updateRootAuthorizationStatus(null);
+        updateRootAuditLog();
+
+        RootEnvironmentReport report = latestRootEnvironmentReport;
+        if (report == null) {
+            return;
+        }
+        if (settingsRootStatusView != null) {
+            String status = report.hasRootIndicators()
+                    ? getString(R.string.route_root_status_detected)
+                    : getString(R.string.route_root_status_not_detected);
+            settingsRootStatusView.setText(status + "\n" + getString(
+                    R.string.route_root_status_detail,
+                    joinListForDisplay(report.getRootManagerPackages()),
+                    joinListForDisplay(report.getSuBinaryPaths())
+            ));
+        }
+        if (settingsRootHiddenStatusView != null) {
+            settingsRootHiddenStatusView.setText(
+                    report.isHiddenRootLikely()
+                            ? R.string.route_root_hidden_possible
+                            : R.string.route_root_hidden_normal
+            );
+        }
+        if (settingsRootDeveloperStatusView != null) {
+            settingsRootDeveloperStatusView.setText(getString(
+                    R.string.route_root_developer_status,
+                    stateText(report.isDeveloperOptionsEnabled())
+            ));
+        }
+        if (settingsRootMockStatusView != null) {
+            settingsRootMockStatusView.setText(getString(
+                    R.string.route_root_mock_status,
+                    allowedText(report.isMockLocationAllowedForThisApp()),
+                    stateText(report.isLegacyMockLocationEnabled())
+            ));
+        }
+        if (settingsRootHookStatusView != null) {
+            settingsRootHookStatusView.setText(getString(
+                    R.string.route_root_hook_status,
+                    joinListForDisplay(report.getHookFrameworkPackages())
+            ));
+        }
+    }
+
+    private boolean isInternalRootTestingEnabled() {
+        return BuildConfig.INTERNAL_ROOT_TESTING_ENABLED;
+    }
+
+    private void confirmRootTestSession() {
+        if (!isInternalRootTestingEnabled()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_root_confirm_title)
+                .setMessage(R.string.route_root_confirm_message)
+                .setPositiveButton(R.string.route_link_settings_confirm, (dialog, which) -> {
+                    rootTestSessionConfirmed = true;
+                    rootShellAuthorized = false;
+                    if (rootAuditLogger != null) {
+                        rootAuditLogger.append("确认Root测试会话");
+                    }
+                    renderRootEnvironmentReport();
+                })
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .show();
+    }
+
+    private void requestRootShellAuthorization() {
+        if (!isInternalRootTestingEnabled()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
+            return;
+        }
+        if (!rootTestSessionConfirmed) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_need_session_confirm));
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.route_root_request_su_title)
+                .setMessage(R.string.route_root_request_su_message)
+                .setPositiveButton(R.string.route_link_settings_confirm, (dialog, which) -> runRootShellProbe())
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .show();
+    }
+
+    private void runRootShellProbe() {
+        if (rootEnvironmentInspector == null || ioExecutor == null || ioExecutor.isShutdown()) {
+            return;
+        }
+        if (settingsRootRequestSuButton != null) {
+            settingsRootRequestSuButton.setEnabled(false);
+        }
+        if (settingsRootAuthorizationStatusView != null) {
+            settingsRootAuthorizationStatusView.setText(R.string.route_root_status_checking);
+        }
+        ioExecutor.execute(() -> {
+            RootShellProbeResult result = rootEnvironmentInspector.requestRootShellProbe();
+            if (rootAuditLogger != null) {
+                rootAuditLogger.append("Root授权探测: authorized=" + result.isAuthorized()
+                        + ", timedOut=" + result.isTimedOut()
+                        + ", exitCode=" + result.getExitCode()
+                        + ", output=" + result.getOutput());
+            }
+            runOnUiThread(() -> {
+                rootShellAuthorized = result.isAuthorized();
+                updateRootAuthorizationStatus(result);
+                updateRootAuditLog();
+                if (settingsRootRequestSuButton != null) {
+                    settingsRootRequestSuButton.setEnabled(isInternalRootTestingEnabled() && rootTestSessionConfirmed);
+                }
+            });
+        });
+    }
+
+    private void updateRootAuthorizationStatus(@Nullable RootShellProbeResult result) {
+        if (settingsRootAuthorizationStatusView == null) {
+            return;
+        }
+        if (result != null) {
+            if (result.isTimedOut()) {
+                settingsRootAuthorizationStatusView.setText(R.string.route_root_authorization_timeout);
+            } else if (result.isAuthorized()) {
+                settingsRootAuthorizationStatusView.setText(buildRootAuthorizationMessage(
+                        getString(R.string.route_root_authorization_granted),
+                        result.getOutput()
+                ));
+            } else {
+                settingsRootAuthorizationStatusView.setText(buildRootAuthorizationMessage(
+                        getString(R.string.route_root_authorization_denied, result.getExitCode()),
+                        result.getOutput()
+                ));
+            }
+            return;
+        }
+        if (rootShellAuthorized) {
+            settingsRootAuthorizationStatusView.setText(R.string.route_root_authorization_granted);
+        } else if (rootTestSessionConfirmed) {
+            settingsRootAuthorizationStatusView.setText(R.string.route_root_authorization_session_confirmed);
+        } else {
+            settingsRootAuthorizationStatusView.setText(R.string.route_root_authorization_not_requested);
+        }
+    }
+
+    @NonNull
+    private String buildRootAuthorizationMessage(@NonNull String status, @NonNull String output) {
+        if (TextUtils.isEmpty(output)) {
+            return status;
+        }
+        return status + "\n" + getString(R.string.route_root_authorization_output, output);
+    }
+
+    private void updateRootAuditLog() {
+        if (settingsRootAuditLogView == null || rootAuditLogger == null) {
+            return;
+        }
+        List<String> entries = rootAuditLogger.getRecentEntries();
+        if (entries.isEmpty()) {
+            settingsRootAuditLogView.setText(R.string.route_root_audit_empty);
+            return;
+        }
+        StringBuilder builder = new StringBuilder();
+        int limit = Math.min(entries.size(), 8);
+        for (int index = 0; index < limit; index++) {
+            if (index > 0) {
+                builder.append('\n');
+            }
+            builder.append(entries.get(index));
+        }
+        settingsRootAuditLogView.setText(builder.toString());
+    }
+
+    @NonNull
+    private String joinListForDisplay(@NonNull List<String> values) {
+        if (values.isEmpty()) {
+            return getString(R.string.route_root_package_none);
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int index = 0; index < values.size(); index++) {
+            if (index > 0) {
+                builder.append(", ");
+            }
+            builder.append(values.get(index));
+        }
+        return builder.toString();
+    }
+
+    @NonNull
+    private String stateText(boolean enabled) {
+        return getString(enabled ? R.string.route_root_enabled_state_on : R.string.route_root_enabled_state_off);
+    }
+
+    @NonNull
+    private String allowedText(boolean allowed) {
+        return getString(allowed ? R.string.route_root_allowed_state_yes : R.string.route_root_allowed_state_no);
     }
 
     private void saveSimulationSettings() {
@@ -2899,6 +3267,12 @@ public class RouteRunActivity extends BaseActivity {
                 getString(R.string.route_settings_letter_share),
                 "共享 上传 下载 share"
         ));
+        sections.add(new SettingsSection(
+                dialogView.findViewById(R.id.layout_dialog_settings_root_container),
+                getString(R.string.route_settings_letter_root),
+                "Root 授权 检测 审计 Hook 开发者选项 模拟位置",
+                true
+        ));
 
         letterRail.removeAllViews();
         for (SettingsSection section : sections) {
@@ -2922,6 +3296,7 @@ public class RouteRunActivity extends BaseActivity {
             @Override
             public void afterTextChanged(Editable editable) {
                 String query = editable == null ? "" : editable.toString().trim().toLowerCase(Locale.getDefault());
+                boolean rootMode = settingsRootContainer != null && settingsRootContainer.getVisibility() == View.VISIBLE;
                 View firstMatch = null;
                 for (SettingsSection section : sections) {
                     if (section.view == null) {
@@ -2930,8 +3305,9 @@ public class RouteRunActivity extends BaseActivity {
                     boolean matched = TextUtils.isEmpty(query)
                             || section.keywords.toLowerCase(Locale.getDefault()).contains(query)
                             || section.letter.toLowerCase(Locale.getDefault()).contains(query);
-                    section.view.setVisibility(matched ? View.VISIBLE : View.GONE);
-                    if (matched && firstMatch == null) {
+                    boolean modeMatched = rootMode == section.rootOnly;
+                    section.view.setVisibility(matched && modeMatched ? View.VISIBLE : View.GONE);
+                    if (matched && modeMatched && firstMatch == null) {
                         firstMatch = section.view;
                     }
                 }
@@ -4033,11 +4409,17 @@ public class RouteRunActivity extends BaseActivity {
         private final View view;
         private final String letter;
         private final String keywords;
+        private final boolean rootOnly;
 
         private SettingsSection(@Nullable View view, @NonNull String letter, @NonNull String keywords) {
+            this(view, letter, keywords, false);
+        }
+
+        private SettingsSection(@Nullable View view, @NonNull String letter, @NonNull String keywords, boolean rootOnly) {
             this.view = view;
             this.letter = letter;
             this.keywords = keywords;
+            this.rootOnly = rootOnly;
         }
     }
 
