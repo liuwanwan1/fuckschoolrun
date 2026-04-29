@@ -43,11 +43,12 @@ android {
         }
     }
     ndkVersion '26.2.11394342'
-    compileSdk 35
+    compileSdk 36
+    buildToolsVersion '36.1.0'
     defaultConfig {
         applicationId "com.acooldog.toolbox"
-        minSdkVersion 27
-        targetSdkVersion 35
+        minSdkVersion 28
+        targetSdkVersion 36
         versionCode 10502
         versionName 'v1.5.2' // https://semver.org/lang/zh-CN/
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"

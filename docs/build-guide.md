@@ -50,8 +50,8 @@ app\build\outputs\apk\release\SchoolRun_v1.0.0_arm64-v8a_release.apk
 ```groovy
 defaultConfig {
     applicationId "com.acooldog.toolbox"
-    minSdkVersion 27
-    targetSdkVersion 35
+    minSdkVersion 28
+    targetSdkVersion 36
     versionCode 10502
     versionName 'v1.5.2'
 }
@@ -62,8 +62,9 @@ defaultConfig {
 - `versionName` 是用户看到的版本号，比如 `v1.0.0`
 - `versionCode` 是 Android 内部版本号，发新版时通常要递增
 - APK 文件名也会跟着 `versionName` 变化，因为输出命名里用了 `defaultConfig.versionName`
-- 当前 `compileSdk` 和 `targetSdkVersion` 对齐 Android 15 / API 35；本地构建环境需要安装 `platforms;android-35` 和 `build-tools;35.0.0`
-- Android 15 包体校验可执行 `zipalign -c -P 16 -v 4 app\build\outputs\apk\debug\SchoolRun_v1.5.2_arm64-v8a_debug.apk`
+- 当前支持范围为 Android 9 / API 28 到 Android 16 / API 36；`compileSdk` 和 `targetSdkVersion` 对齐 API 36
+- 本地构建环境需要安装 `platforms;android-36` 和 `build-tools;36.1.0`，Gradle Wrapper 使用 8.13，Android Gradle Plugin 使用 8.13.2
+- Android 16 包体校验可执行 `zipalign -c -P 16 -v 4 app\build\outputs\apk\debug\SchoolRun_v1.5.2_arm64-v8a_debug.apk`
 
 例如你要发布 `v1.0.1`，可以改成：
 

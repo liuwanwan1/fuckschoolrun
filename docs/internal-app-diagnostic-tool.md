@@ -33,7 +33,7 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 开始测试前必须满足：
 
 - DEBUG 内测构建启用 `BuildConfig.INTERNAL_ROOT_TESTING_ENABLED`
-- 应用构建目标为 Android 15 / API 35；Android 13+ 会请求通知权限，Android 14+ 已声明 location 前台服务权限
+- 应用构建范围为 Android 9 / API 28 到 Android 16 / API 36；Android 13+ 会请求通知权限，Android 14+ 已声明 location 前台服务权限
 - Root 模式总开关已开启，且当前设备环境检测到 Root 迹象
 - 设备已安装并启用 LSPosed 管理器 `org.lsposed.manager`
 - 已确认本次 Root 测试会话
@@ -43,13 +43,16 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 
 Frida 脚本生成与命令注入保留为代码层回退能力；当前 UI 默认使用 LSPosed 作用域模式。
 
-Android 15 兼容处理：
+Android 9-16 兼容处理：
 
-- `compileSdk` / `targetSdkVersion` 已升到 35。
-- v35 主题临时设置 `android:windowOptOutEdgeToEdgeEnforcement=true`，避免旧页面在 Android 15 强制 edge-to-edge 下被系统栏遮挡。
+- `minSdkVersion` 已对齐 Android 9 / API 28，`compileSdk` / `targetSdkVersion` 已升到 Android 16 / API 36。
+- 构建链路升级为 Gradle 8.13、Android Gradle Plugin 8.13.2，并要求本地 SDK 安装 `platforms;android-36` 与 `build-tools;36.1.0`。
+- v35 主题临时设置 `android:windowOptOutEdgeToEdgeEnforcement=true`，避免旧页面在 Android 15 强制 edge-to-edge 下被系统栏遮挡；v36 主题单独覆盖并不再依赖该临时属性，后续页面改造应按系统栏 inset 处理。
+- `AndroidManifest.xml` 开启 `android:pageSizeCompat="enabled"`，在替换 Baidu 原生库前保留 Android 16 的 16 KB page-size 兼容模式。
+- `AndroidManifest.xml` 暂时设置 `android:enableOnBackInvokedCallback="false"`，保护当前仍使用 `onBackPressed()` 的页面行为；后续迁移到 AndroidX `OnBackPressedDispatcher` 后可移除。
 - 动态广播接收器在 Android 13+ 使用显式 exported flag；下载完成广播额外校验 download id。
 - `ServiceGo` 不再在 Android 12+ 的 task removed 回调里自启动前台服务，避免触发后台前台服务启动限制。
-- Debug APK 已可通过 `zipalign -c -P 16 -v 4` 检查 16 KB APK 对齐；当前第三方 Baidu `libindoor.so` 仍是 4 KB ELF LOAD alignment，若未来要完整覆盖 16 KB page-size 设备，需要替换为 16 KB ELF 对齐版本。
+- Debug APK 已可通过 `zipalign -c -P 16 -v 4` 检查 16 KB APK 对齐；当前 Baidu `libindoor.so` 仍是 4 KB ELF LOAD alignment，若未来要完整覆盖 16 KB page-size 设备，需要替换为 16 KB ELF 对齐版本。
 
 ## 输出
 
