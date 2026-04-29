@@ -1,3 +1,4 @@
 rootProject.name = "fuckschoolrun"
 include ':app'
 include ':algorithm-test-kit'
+include ':sensor-test-engine'

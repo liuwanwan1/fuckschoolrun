@@ -201,6 +201,7 @@ public class RouteRunActivity extends BaseActivity {
     private Button settingsAlgorithmLabButton;
     private Button settingsTestInstructionStudioButton;
     private Button settingsScenarioLibraryButton;
+    private Button settingsPressureLabButton;
     private EditText settingsLinkRatioLeftInput;
     private EditText settingsLinkRatioRightInput;
     private EditText settingsStepsPerMeterInput;
@@ -2367,6 +2368,7 @@ public class RouteRunActivity extends BaseActivity {
             settingsAlgorithmLabButton = null;
             settingsTestInstructionStudioButton = null;
             settingsScenarioLibraryButton = null;
+            settingsPressureLabButton = null;
         });
         simulationSettingsDialog.show();
     }
@@ -2476,6 +2478,9 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (settingsScenarioLibraryButton != null) {
             settingsScenarioLibraryButton.setEnabled(BuildConfig.ENABLE_ALGORITHM_TEST);
+        }
+        if (settingsPressureLabButton != null) {
+            settingsPressureLabButton.setEnabled(BuildConfig.ENABLE_ALGORITHM_TEST && BuildConfig.INTERNAL_ROOT_TESTING_ENABLED);
         }
         updateRootAuthorizationStatus(null);
         updateRootAuditLog();
@@ -2601,6 +2606,14 @@ public class RouteRunActivity extends BaseActivity {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
+
+        settingsPressureLabButton = new Button(this);
+        settingsPressureLabButton.setText("打开反作弊压力测试平台");
+        settingsPressureLabButton.setOnClickListener(v -> confirmOpenInternalPressureLab());
+        sectionLayout.addView(settingsPressureLabButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
     }
 
     private void confirmOpenTestInstructionStudio(boolean openLibrary) {
@@ -2629,6 +2642,31 @@ public class RouteRunActivity extends BaseActivity {
             Intent intent = new Intent(this, activityClass);
             intent.putExtra("open_library", openLibrary);
             startActivity(intent);
+        } catch (Exception exception) {
+            GoUtils.DisplayToast(this, getString(R.string.route_algorithm_lab_disabled));
+        }
+    }
+
+    private void confirmOpenInternalPressureLab() {
+        if (!BuildConfig.DEBUG
+                || !BuildConfig.ENABLE_ALGORITHM_TEST
+                || !BuildConfig.INTERNAL_ROOT_TESTING_ENABLED
+                || !new InternalAuthStore(getApplicationContext()).isLoggedIn()) {
+            GoUtils.DisplayToast(this, "反作弊压力测试平台仅在DEBUG内测账号下开放。");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("开启反作弊压力测试平台")
+                .setMessage("该平台仅生成FOR TESTING ONLY测试报告，不执行系统注入、Hook加载、信号伪造或隐藏能力。")
+                .setPositiveButton(R.string.route_link_settings_confirm, (dialog, which) -> openInternalPressureLab())
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .show();
+    }
+
+    private void openInternalPressureLab() {
+        try {
+            Class<?> activityClass = Class.forName("com.acooldog.toolbox.InternalPressureLabActivity");
+            startActivity(new Intent(this, activityClass));
         } catch (Exception exception) {
             GoUtils.DisplayToast(this, getString(R.string.route_algorithm_lab_disabled));
         }
@@ -3361,13 +3399,13 @@ public class RouteRunActivity extends BaseActivity {
         sections.add(new SettingsSection(
                 dialogView.findViewById(R.id.layout_dialog_settings_root_container),
                 getString(R.string.route_settings_letter_root),
-                "Root 授权 检测 审计 Hook 开发者选项 模拟位置 算法 验证 实验室 测试数据 管理 步频 GPS 传感器 一致性 测试指令 工作室 场景模板 回放",
+                "Root 授权 检测 审计 Hook 开发者选项 模拟位置 算法 验证 实验室 测试数据 管理 步频 GPS 传感器 一致性 测试指令 工作室 场景模板 回放 压力测试 反作弊 NMEA 环境",
                 true
         ));
         sections.add(new SettingsSection(
                 dialogView.findViewById(R.id.section_settings_algorithm_lab),
                 getString(R.string.route_settings_letter_root),
-                "算法 验证 实验室 步频 GPS 传感器 一致性 测试数据 管理 测试指令 工作室 场景模板 回放",
+                "算法 验证 实验室 步频 GPS 传感器 一致性 测试数据 管理 测试指令 工作室 场景模板 回放 压力测试 反作弊 NMEA 环境",
                 true
         ));
 

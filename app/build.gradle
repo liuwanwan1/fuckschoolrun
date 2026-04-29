@@ -159,6 +159,7 @@ dependencies {
     implementation 'io.noties.markwon:core:4.6.2'
     implementation files('libs/BaiduLBS_Android.jar')
     debugImplementation project(':algorithm-test-kit')
+    debugImplementation project(':sensor-test-engine')
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.6.2'

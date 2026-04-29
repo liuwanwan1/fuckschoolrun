@@ -11,5 +11,10 @@
             android:exported="false"
             android:label="@string/test_studio_title"
             android:process=":instruction_sandbox" />
+        <activity
+            android:name=".InternalPressureLabActivity"
+            android:exported="false"
+            android:label="反作弊压力测试平台"
+            android:process=":pressure_sandbox" />
     </application>
 </manifest>
