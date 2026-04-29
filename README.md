@@ -51,6 +51,12 @@ com.acooldog.toolbox
 
 - [docs/build-guide.md](./docs/build-guide.md)
 
+## 后端仓库
+
+校园跑后端已迁移为独立仓库：
+
+- `git@gitee.com:daoges_x/campus-backend-running.git`
+
 ## 免责声明
 
 本项目仅供合法合规的开发、调试、学习与研究用途。
