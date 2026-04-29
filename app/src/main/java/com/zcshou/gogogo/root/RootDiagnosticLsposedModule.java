@@ -154,6 +154,19 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             }
             return;
         }
+        if (LsposedDiagnosticBridge.COMMAND_UPDATE_LOCATION.equals(command)) {
+            if (!active || !safeString(intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SESSION_ID)).equals(activeSessionId)) {
+                return;
+            }
+            activeSettings = RootDiagnosticSettings.fromJson(
+                    intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SETTINGS_JSON)
+            );
+            logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "route_location_updated",
+                    "lat=" + activeSettings.getLocationLatitude()
+                            + ", lon=" + activeSettings.getLocationLongitude()
+                            + ", speed=" + activeSettings.getLocationSpeedMetersPerSecond());
+            return;
+        }
         if (LsposedDiagnosticBridge.COMMAND_STOP.equals(command)) {
             logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_session_stopped",
                     "LSPosed作用域诊断已停止。");

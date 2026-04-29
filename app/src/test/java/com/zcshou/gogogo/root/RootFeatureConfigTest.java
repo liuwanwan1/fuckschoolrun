@@ -1,6 +1,8 @@
 package com.acooldog.toolbox.root;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -10,6 +12,20 @@ public class RootFeatureConfigTest {
         RootFeatureConfig config = RootFeatureConfig.defaults();
 
         assertEquals(RootFeatureConfig.InjectionFramework.LSPOSED, config.getInjectionFramework());
+    }
+
+    @Test
+    public void defaults_disableRootModeUntilExplicitlyEnabled() {
+        RootFeatureConfig config = RootFeatureConfig.defaults();
+
+        assertFalse(config.isRootModeEnabled());
+    }
+
+    @Test
+    public void rootModeEnabled_canBeToggledInConfig() {
+        RootFeatureConfig config = RootFeatureConfig.defaults().withRootModeEnabled(true);
+
+        assertTrue(config.isRootModeEnabled());
     }
 
     @Test

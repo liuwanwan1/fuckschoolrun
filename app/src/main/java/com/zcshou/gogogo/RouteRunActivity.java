@@ -200,6 +200,10 @@ public class RouteRunActivity extends BaseActivity {
     private boolean rootTestSessionConfirmed;
     private boolean rootShellAuthorized;
     private boolean suppressRootFeatureSwitchCallbacks;
+    private boolean lastRouteDiagnosticLocationAvailable;
+    private double lastRouteDiagnosticLongitude;
+    private double lastRouteDiagnosticLatitude;
+    private float lastRouteDiagnosticSpeed;
     private SensorManager sensorManager;
     private Sensor stepCounterSensor;
     private Sensor stepDetectorSensor;
@@ -215,7 +219,12 @@ public class RouteRunActivity extends BaseActivity {
     private TextView settingsNonRootTabView;
     private TextView settingsRootTabView;
     private View settingsRootContainer;
+    private View settingsRootEnvironmentSection;
+    private View settingsRootRestrictedSection;
+    private View settingsRootAlgorithmLabSection;
+    private View settingsRootLogsSection;
     private TextView settingsRootInternalStatusView;
+    private TextView settingsRootModeStatusView;
     private TextView settingsRootStatusView;
     private TextView settingsRootAuthorizationStatusView;
     private TextView settingsRootHiddenStatusView;
@@ -243,6 +252,7 @@ public class RouteRunActivity extends BaseActivity {
     private Button settingsScenarioLibraryButton;
     private Button settingsPressureLabButton;
     private Switch settingsRootEnvironmentSwitch;
+    private Switch settingsRootModeSwitch;
     private Switch settingsRootSuProbeSwitch;
     private Switch settingsRootEncryptedAuditSwitch;
     private Switch settingsRootGmInterfaceSwitch;
@@ -2165,7 +2175,12 @@ public class RouteRunActivity extends BaseActivity {
         settingsNonRootTabView = dialogView.findViewById(R.id.tv_dialog_settings_tab_non_root);
         settingsRootTabView = dialogView.findViewById(R.id.tv_dialog_settings_tab_root);
         settingsRootContainer = dialogView.findViewById(R.id.layout_dialog_settings_root_container);
+        settingsRootEnvironmentSection = dialogView.findViewById(R.id.section_settings_root_environment);
+        settingsRootRestrictedSection = dialogView.findViewById(R.id.section_settings_root_restricted);
+        settingsRootAlgorithmLabSection = dialogView.findViewById(R.id.section_settings_algorithm_lab);
+        settingsRootLogsSection = dialogView.findViewById(R.id.section_settings_root_logs);
         settingsRootInternalStatusView = dialogView.findViewById(R.id.tv_dialog_root_internal_status);
+        settingsRootModeStatusView = dialogView.findViewById(R.id.tv_dialog_root_mode_status);
         settingsRootStatusView = dialogView.findViewById(R.id.tv_dialog_root_status);
         settingsRootAuthorizationStatusView = dialogView.findViewById(R.id.tv_dialog_root_authorization_status);
         settingsRootHiddenStatusView = dialogView.findViewById(R.id.tv_dialog_root_hidden_status);
@@ -2189,6 +2204,7 @@ public class RouteRunActivity extends BaseActivity {
         settingsRootReloadConfigButton = dialogView.findViewById(R.id.btn_dialog_root_reload_config);
         settingsRootGenerateGmButton = dialogView.findViewById(R.id.btn_dialog_root_generate_gm);
         settingsAlgorithmLabButton = dialogView.findViewById(R.id.btn_dialog_algorithm_lab);
+        settingsRootModeSwitch = dialogView.findViewById(R.id.switch_dialog_root_mode);
         settingsRootEnvironmentSwitch = dialogView.findViewById(R.id.switch_dialog_root_environment);
         settingsRootSuProbeSwitch = dialogView.findViewById(R.id.switch_dialog_root_su_probe);
         settingsRootEncryptedAuditSwitch = dialogView.findViewById(R.id.switch_dialog_root_encrypted_audit);
@@ -2262,6 +2278,14 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (settingsRootPickTargetButton != null) {
             settingsRootPickTargetButton.setOnClickListener(v -> openLsposedScopeSelectorFromRootPanel());
+        }
+        if (settingsRootModeSwitch != null) {
+            settingsRootModeSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (suppressRootFeatureSwitchCallbacks) {
+                    return;
+                }
+                updateRootModeEnabled(isChecked);
+            });
         }
         bindRootModuleSettingsButtons();
         bindRootFeatureSwitches();
@@ -2463,7 +2487,12 @@ public class RouteRunActivity extends BaseActivity {
             settingsNonRootTabView = null;
             settingsRootTabView = null;
             settingsRootContainer = null;
+            settingsRootEnvironmentSection = null;
+            settingsRootRestrictedSection = null;
+            settingsRootAlgorithmLabSection = null;
+            settingsRootLogsSection = null;
             settingsRootInternalStatusView = null;
+            settingsRootModeStatusView = null;
             settingsRootStatusView = null;
             settingsRootAuthorizationStatusView = null;
             settingsRootHiddenStatusView = null;
@@ -2490,6 +2519,7 @@ public class RouteRunActivity extends BaseActivity {
             settingsTestInstructionStudioButton = null;
             settingsScenarioLibraryButton = null;
             settingsPressureLabButton = null;
+            settingsRootModeSwitch = null;
             settingsRootEnvironmentSwitch = null;
             settingsRootSuProbeSwitch = null;
             settingsRootEncryptedAuditSwitch = null;
@@ -2612,11 +2642,42 @@ public class RouteRunActivity extends BaseActivity {
             renderRootFeatureConfig();
             return;
         }
+        if (!isRootControlsUnlocked()) {
+            showRootModeGateToast();
+            renderRootFeatureConfig();
+            return;
+        }
         if (rootFeatureConfigStore == null) {
             return;
         }
         RootFeatureConfig config = rootFeatureConfigStore.setFeature(feature, enabled);
         applyRootFeatureConfig(config, "switch_" + feature.getConfigKey(), true);
+        GoUtils.DisplayToast(this, getString(R.string.route_root_config_saved));
+    }
+
+    private void updateRootModeEnabled(boolean enabled) {
+        if (!isInternalRootTestingEnabled()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
+            renderRootFeatureConfig();
+            return;
+        }
+        if (enabled && !isRootDetectedForRootMode()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_mode_need_root));
+            renderRootFeatureConfig();
+            return;
+        }
+        if (rootFeatureConfigStore == null) {
+            return;
+        }
+        if (!enabled && rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
+            finishRootDiagnosticSession(true);
+        }
+        if (!enabled) {
+            rootTestSessionConfirmed = false;
+            rootShellAuthorized = false;
+        }
+        RootFeatureConfig config = rootFeatureConfigStore.setRootModeEnabled(enabled);
+        applyRootFeatureConfig(config, "root_mode_toggle", true);
         GoUtils.DisplayToast(this, getString(R.string.route_root_config_saved));
     }
 
@@ -2651,6 +2712,76 @@ public class RouteRunActivity extends BaseActivity {
         }
     }
 
+    private boolean isRootModeConfiguredEnabled() {
+        RootFeatureConfig config = latestRootFeatureConfig;
+        if (config == null && rootFeatureConfigStore != null) {
+            config = rootFeatureConfigStore.load();
+            latestRootFeatureConfig = config;
+        }
+        return config != null && config.isRootModeEnabled();
+    }
+
+    private boolean isRootDetectedForRootMode() {
+        RootEnvironmentReport report = latestRootEnvironmentReport;
+        return rootShellAuthorized || (report != null && report.hasRootIndicators());
+    }
+
+    private boolean isRootControlsUnlocked() {
+        return isInternalRootTestingEnabled()
+                && isRootModeConfiguredEnabled()
+                && isRootDetectedForRootMode();
+    }
+
+    private boolean isRootControlsUnlocked(@NonNull RootFeatureConfig config) {
+        return isInternalRootTestingEnabled()
+                && config.isRootModeEnabled()
+                && isRootDetectedForRootMode();
+    }
+
+    private void showRootModeGateToast() {
+        if (!isInternalRootTestingEnabled()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
+        } else if (!isRootDetectedForRootMode()) {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_mode_need_root));
+        } else {
+            GoUtils.DisplayToast(this, getString(R.string.route_root_mode_need_enabled));
+        }
+    }
+
+    private void renderRootModeGate(@NonNull RootFeatureConfig config, boolean internalEnabled) {
+        boolean rootDetected = isRootDetectedForRootMode();
+        boolean rootModeChecked = internalEnabled && rootDetected && config.isRootModeEnabled();
+        suppressRootFeatureSwitchCallbacks = true;
+        if (settingsRootModeSwitch != null) {
+            settingsRootModeSwitch.setChecked(rootModeChecked);
+            settingsRootModeSwitch.setEnabled(internalEnabled && rootDetected
+                    && (rootDiagnosticSessionController == null || !rootDiagnosticSessionController.isRunning()));
+        }
+        suppressRootFeatureSwitchCallbacks = false;
+        if (settingsRootModeStatusView != null) {
+            if (!internalEnabled) {
+                settingsRootModeStatusView.setText(R.string.route_root_internal_disabled);
+            } else if (!rootDetected) {
+                settingsRootModeStatusView.setText(R.string.route_root_mode_need_root);
+            } else if (config.isRootModeEnabled()) {
+                settingsRootModeStatusView.setText(R.string.route_root_mode_enabled_hint);
+            } else {
+                settingsRootModeStatusView.setText(R.string.route_root_mode_locked_hint);
+            }
+        }
+        int controlsVisibility = rootModeChecked ? View.VISIBLE : View.GONE;
+        setNullableViewVisibility(settingsRootEnvironmentSection, controlsVisibility);
+        setNullableViewVisibility(settingsRootRestrictedSection, controlsVisibility);
+        setNullableViewVisibility(settingsRootAlgorithmLabSection, controlsVisibility);
+        setNullableViewVisibility(settingsRootLogsSection, controlsVisibility);
+    }
+
+    private void setNullableViewVisibility(@Nullable View view, int visibility) {
+        if (view != null) {
+            view.setVisibility(visibility);
+        }
+    }
+
     private void renderRootFeatureConfig() {
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
         RootFeatureRuntimeReport report = latestRootFeatureRuntimeReport;
@@ -2660,25 +2791,27 @@ public class RouteRunActivity extends BaseActivity {
         }
 
         boolean internalEnabled = isInternalRootTestingEnabled();
+        renderRootModeGate(config, internalEnabled);
+        boolean controlsUnlocked = isRootControlsUnlocked(config);
         suppressRootFeatureSwitchCallbacks = true;
-        setRootFeatureSwitchState(settingsRootEnvironmentSwitch, config, RootFeature.ENVIRONMENT_INSPECTION, internalEnabled);
-        setRootFeatureSwitchState(settingsRootSuProbeSwitch, config, RootFeature.ROOT_SHELL_PROBE, internalEnabled);
-        setRootFeatureSwitchState(settingsRootEncryptedAuditSwitch, config, RootFeature.ENCRYPTED_AUDIT_LOG, internalEnabled);
-        setRootFeatureSwitchState(settingsRootGmInterfaceSwitch, config, RootFeature.GM_TEST_INTERFACE, internalEnabled);
-        setRootFeatureSwitchState(settingsRootFridaInjectionSwitch, config, RootFeature.FRIDA_DYNAMIC_INJECTION, internalEnabled);
-        setRootFeatureSwitchState(settingsRootNmeaSwitch, config, RootFeature.ROOT_NMEA_INJECTION, internalEnabled);
-        setRootFeatureSwitchState(settingsRootSignalSwitch, config, RootFeature.SIGNAL_SIMULATION, internalEnabled);
-        setRootFeatureSwitchState(settingsRootBypassSwitch, config, RootFeature.MOCK_LOCATION_BYPASS, internalEnabled);
-        setRootFeatureSwitchState(settingsRootHookSwitch, config, RootFeature.TARGET_APP_HOOK, internalEnabled);
-        setRootFeatureSwitchState(settingsRootServiceLogSwitch, config, RootFeature.SYSTEM_SERVICE_STREAM_LOG, internalEnabled);
-        setRootFeatureSwitchState(settingsRootSensorSwitch, config, RootFeature.SENSOR_EVENT_INJECTION, internalEnabled);
+        setRootFeatureSwitchState(settingsRootEnvironmentSwitch, config, RootFeature.ENVIRONMENT_INSPECTION, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootSuProbeSwitch, config, RootFeature.ROOT_SHELL_PROBE, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootEncryptedAuditSwitch, config, RootFeature.ENCRYPTED_AUDIT_LOG, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootGmInterfaceSwitch, config, RootFeature.GM_TEST_INTERFACE, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootFridaInjectionSwitch, config, RootFeature.FRIDA_DYNAMIC_INJECTION, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootNmeaSwitch, config, RootFeature.ROOT_NMEA_INJECTION, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootSignalSwitch, config, RootFeature.SIGNAL_SIMULATION, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootBypassSwitch, config, RootFeature.MOCK_LOCATION_BYPASS, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootHookSwitch, config, RootFeature.TARGET_APP_HOOK, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootServiceLogSwitch, config, RootFeature.SYSTEM_SERVICE_STREAM_LOG, controlsUnlocked);
+        setRootFeatureSwitchState(settingsRootSensorSwitch, config, RootFeature.SENSOR_EVENT_INJECTION, controlsUnlocked);
         suppressRootFeatureSwitchCallbacks = false;
 
         if (settingsRootReloadConfigButton != null) {
-            settingsRootReloadConfigButton.setEnabled(true);
+            settingsRootReloadConfigButton.setEnabled(controlsUnlocked);
         }
         if (settingsRootGenerateGmButton != null) {
-            settingsRootGenerateGmButton.setEnabled(internalEnabled
+            settingsRootGenerateGmButton.setEnabled(controlsUnlocked
                     && rootTestSessionConfirmed
                     && config.isEnabled(RootFeature.GM_TEST_INTERFACE));
         }
@@ -2761,7 +2894,7 @@ public class RouteRunActivity extends BaseActivity {
         boolean targetSelected = !TextUtils.isEmpty(targetPackageName);
         boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
         boolean lsposedInstalled = LsposedDiagnosticBridge.isManagerInstalled(this);
-        boolean internalEnabled = isInternalRootTestingEnabled();
+        boolean controlsUnlocked = isRootControlsUnlocked(config);
         boolean running = rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning();
 
         if (settingsRootTargetStatusView != null) {
@@ -2785,17 +2918,17 @@ public class RouteRunActivity extends BaseActivity {
             }
         }
         if (settingsRootPickTargetButton != null) {
-            settingsRootPickTargetButton.setEnabled(internalEnabled && !running);
+            settingsRootPickTargetButton.setEnabled(controlsUnlocked && !running);
             settingsRootPickTargetButton.setText(lsposedInstalled
                     ? R.string.route_root_open_lsposed_scope_button
                     : R.string.route_root_lsposed_missing_button);
         }
-        setModuleSettingsButtonState(settingsRootNmeaSettingsButton, internalEnabled && !running, RootDiagnosticModule.LOCATION_NMEA);
-        setModuleSettingsButtonState(settingsRootSignalSettingsButton, internalEnabled && !running, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
-        setModuleSettingsButtonState(settingsRootBypassSettingsButton, internalEnabled && !running, RootDiagnosticModule.DETECTION_BYPASS);
-        setModuleSettingsButtonState(settingsRootHookSettingsButton, internalEnabled && !running, RootDiagnosticModule.TARGET_APP_HOOK);
-        setModuleSettingsButtonState(settingsRootServiceSettingsButton, internalEnabled && !running, RootDiagnosticModule.SERVICE_STREAM);
-        setModuleSettingsButtonState(settingsRootSensorSettingsButton, internalEnabled && !running, RootDiagnosticModule.SENSOR_INJECTION);
+        setModuleSettingsButtonState(settingsRootNmeaSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.LOCATION_NMEA);
+        setModuleSettingsButtonState(settingsRootSignalSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
+        setModuleSettingsButtonState(settingsRootBypassSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.DETECTION_BYPASS);
+        setModuleSettingsButtonState(settingsRootHookSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.TARGET_APP_HOOK);
+        setModuleSettingsButtonState(settingsRootServiceSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.SERVICE_STREAM);
+        setModuleSettingsButtonState(settingsRootSensorSettingsButton, controlsUnlocked && !running, RootDiagnosticModule.SENSOR_INJECTION);
         if (settingsRootDiagnosticLogView != null) {
             List<String> lines = rootDiagnosticSessionController == null
                     ? new ArrayList<>()
@@ -2838,6 +2971,10 @@ public class RouteRunActivity extends BaseActivity {
             GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
             return;
         }
+        if (!isRootControlsUnlocked()) {
+            showRootModeGateToast();
+            return;
+        }
         if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
             GoUtils.DisplayToast(this, "诊断运行中，结束路线模拟后再修改LSPosed作用域。");
             return;
@@ -2865,6 +3002,10 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private void showRootModuleSettingsDialog(@NonNull RootDiagnosticModule module) {
+        if (!isRootControlsUnlocked()) {
+            showRootModeGateToast();
+            return;
+        }
         if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
             GoUtils.DisplayToast(this, "诊断运行中，结束路线模拟后再修改模块设置。");
             return;
@@ -3115,6 +3256,10 @@ public class RouteRunActivity extends BaseActivity {
     private void confirmStartRootDiagnosticSession() {
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
         boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
+        if (!isRootControlsUnlocked(config)) {
+            showRootModeGateToast();
+            return;
+        }
         if (!lsposedMode && TextUtils.isEmpty(config.getTargetPackageName())) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_diagnostic_need_target));
             return;
@@ -3155,6 +3300,13 @@ public class RouteRunActivity extends BaseActivity {
         RootDiagnosticSettings settings = latestRootDiagnosticSettings == null
                 ? RootDiagnosticSettings.defaults()
                 : latestRootDiagnosticSettings;
+        if (!isRootControlsUnlocked(config)) {
+            if (showToast) {
+                showRootModeGateToast();
+            }
+            return false;
+        }
+        settings = withLatestRouteDiagnosticLocationIfNeeded(config, settings);
         RootDiagnosticSessionController.StartResult result = rootDiagnosticSessionController.startSession(
                 config,
                 settings,
@@ -3172,6 +3324,24 @@ public class RouteRunActivity extends BaseActivity {
                     : result.getMessage());
         }
         return result.isStarted();
+    }
+
+    @NonNull
+    private RootDiagnosticSettings withLatestRouteDiagnosticLocationIfNeeded(
+            @NonNull RootFeatureConfig config,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        if (!config.isEnabled(RootFeature.ROOT_NMEA_INJECTION)
+                || !lastRouteDiagnosticLocationAvailable) {
+            return settings;
+        }
+        return settings.withLocation(
+                lastRouteDiagnosticLatitude,
+                lastRouteDiagnosticLongitude,
+                lastRouteDiagnosticSpeed,
+                settings.getLocationSatellites(),
+                settings.getLocationHdop()
+        );
     }
 
     private void finishRootDiagnosticSession() {
@@ -3203,7 +3373,8 @@ public class RouteRunActivity extends BaseActivity {
         }
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
         boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
-        if ((!lsposedMode && TextUtils.isEmpty(config.getTargetPackageName()))
+        if (!isRootControlsUnlocked(config)
+                || (!lsposedMode && TextUtils.isEmpty(config.getTargetPackageName()))
                 || !config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
                 || RootDiagnosticModule.enabledIn(config).isEmpty()) {
             return;
@@ -3222,6 +3393,21 @@ public class RouteRunActivity extends BaseActivity {
         if (started) {
             GoUtils.DisplayToast(this, "目标APK诊断已随路线模拟自动启动。");
         }
+    }
+
+    private void syncRootDiagnosticLocation(double longitude, double latitude, float speed) {
+        lastRouteDiagnosticLocationAvailable = true;
+        lastRouteDiagnosticLongitude = longitude;
+        lastRouteDiagnosticLatitude = latitude;
+        lastRouteDiagnosticSpeed = speed;
+        if (rootDiagnosticSessionController == null || !rootDiagnosticSessionController.isRunning()) {
+            return;
+        }
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        if (!isRootControlsUnlocked(config) || !config.isEnabled(RootFeature.ROOT_NMEA_INJECTION)) {
+            return;
+        }
+        rootDiagnosticSessionController.syncRouteLocation(longitude, latitude, speed);
     }
 
     private void showRootDiagnosticReport(@NonNull RootDiagnosticSessionController.FinishResult result) {
@@ -3291,12 +3477,12 @@ public class RouteRunActivity extends BaseActivity {
         if (rootEnvironmentInspector == null || ioExecutor == null || ioExecutor.isShutdown()) {
             return;
         }
-        if (!isRootFeatureEnabled(RootFeature.ENVIRONMENT_INSPECTION)) {
+        boolean environmentFeatureEnabled = isRootFeatureEnabled(RootFeature.ENVIRONMENT_INSPECTION);
+        if (!environmentFeatureEnabled) {
             if (settingsRootStatusView != null) {
                 settingsRootStatusView.setText("Root状态：环境检测开关关闭。");
             }
             appendRootAudit("Root环境检测跳过: featureDisabled=true");
-            return;
         }
         if (settingsRootStatusView != null) {
             settingsRootStatusView.setText(R.string.route_root_status_checking);
@@ -3316,6 +3502,8 @@ public class RouteRunActivity extends BaseActivity {
 
     private void renderRootEnvironmentReport() {
         boolean internalEnabled = isInternalRootTestingEnabled();
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        boolean controlsUnlocked = isRootControlsUnlocked(config);
         if (settingsRootInternalStatusView != null) {
             settingsRootInternalStatusView.setText(
                     internalEnabled ? R.string.route_root_internal_enabled : R.string.route_root_internal_disabled
@@ -3325,10 +3513,10 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootRefreshButton.setEnabled(true);
         }
         if (settingsRootConfirmSessionButton != null) {
-            settingsRootConfirmSessionButton.setEnabled(internalEnabled);
+            settingsRootConfirmSessionButton.setEnabled(controlsUnlocked);
         }
         if (settingsRootRequestSuButton != null) {
-            settingsRootRequestSuButton.setEnabled(internalEnabled
+            settingsRootRequestSuButton.setEnabled(controlsUnlocked
                     && rootTestSessionConfirmed
                     && isRootFeatureEnabled(RootFeature.ROOT_SHELL_PROBE));
         }
@@ -3399,6 +3587,10 @@ public class RouteRunActivity extends BaseActivity {
             GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
             return;
         }
+        if (!isRootControlsUnlocked()) {
+            showRootModeGateToast();
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle(R.string.route_root_confirm_title)
                 .setMessage(R.string.route_root_confirm_message)
@@ -3415,6 +3607,10 @@ public class RouteRunActivity extends BaseActivity {
     private void requestRootShellAuthorization() {
         if (!isInternalRootTestingEnabled()) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_need_internal));
+            return;
+        }
+        if (!isRootControlsUnlocked()) {
+            showRootModeGateToast();
             return;
         }
         if (!isRootFeatureEnabled(RootFeature.ROOT_SHELL_PROBE)) {
@@ -3434,7 +3630,7 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private void generateRootGmTestPreview() {
-        if (!isInternalRootTestingEnabled()
+        if (!isRootControlsUnlocked()
                 || !rootTestSessionConfirmed
                 || !isRootFeatureEnabled(RootFeature.GM_TEST_INTERFACE)) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_gm_need_enabled));
@@ -5277,6 +5473,7 @@ public class RouteRunActivity extends BaseActivity {
         @Override
         public void pushLocation(double longitude, double latitude, double altitude, float speed, float bearing) {
             updateFloatingWindowPosition(longitude, latitude);
+            syncRootDiagnosticLocation(longitude, latitude, speed);
             if (serviceBinder != null) {
                 serviceBinder.setMotion(longitude, latitude, altitude, speed, bearing);
                 XLog.d("RouteRunActivity: pushed motion directly to ServiceGo");

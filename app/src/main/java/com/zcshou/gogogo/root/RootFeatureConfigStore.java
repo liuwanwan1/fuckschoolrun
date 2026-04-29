@@ -72,6 +72,13 @@ public final class RootFeatureConfigStore {
         return config;
     }
 
+    @NonNull
+    public RootFeatureConfig setRootModeEnabled(boolean enabled) {
+        RootFeatureConfig config = load().withRootModeEnabled(enabled);
+        save(config);
+        return config;
+    }
+
     public void registerListener(@NonNull OnConfigChangedListener listener) {
         if (!listeners.contains(listener)) {
             listeners.add(listener);

@@ -20,6 +20,7 @@ public final class LsposedDiagnosticBridge {
     public static final String EXTRA_SETTINGS_JSON = "settingsJson";
     public static final String COMMAND_START = "start";
     public static final String COMMAND_STOP = "stop";
+    public static final String COMMAND_UPDATE_LOCATION = "update_location";
     public static final String SCOPE_TARGET_LABEL = "LSPosed作用域目标";
 
     private LsposedDiagnosticBridge() {
@@ -65,6 +66,17 @@ public final class LsposedDiagnosticBridge {
     public static void broadcastStop(@NonNull Context context, @NonNull String sessionId) {
         Intent intent = baseIntent(COMMAND_STOP);
         intent.putExtra(EXTRA_SESSION_ID, sessionId);
+        context.getApplicationContext().sendBroadcast(intent);
+    }
+
+    public static void broadcastUpdateLocation(
+            @NonNull Context context,
+            @NonNull String sessionId,
+            @NonNull RootDiagnosticSettings settings
+    ) {
+        Intent intent = baseIntent(COMMAND_UPDATE_LOCATION);
+        intent.putExtra(EXTRA_SESSION_ID, sessionId);
+        intent.putExtra(EXTRA_SETTINGS_JSON, settings.toJson());
         context.getApplicationContext().sendBroadcast(intent);
     }
 

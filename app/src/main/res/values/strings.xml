@@ -361,6 +361,11 @@
     <string name="route_root_status_detail">Root管理器：%1$s\nsu路径：%2$s</string>
     <string name="route_root_internal_enabled">内测开关：已启用。</string>
     <string name="route_root_internal_disabled">内测开关：未启用，Root功能仅显示检测结果。</string>
+    <string name="route_root_mode_switch">Root模式总开关</string>
+    <string name="route_root_mode_locked_hint">开启后才显示Root高级控件；未检测到Root时不可开启。</string>
+    <string name="route_root_mode_enabled_hint">Root模式已开启，高级控件仅在本机检测到Root时可用。</string>
+    <string name="route_root_mode_need_enabled">请先开启Root模式总开关。</string>
+    <string name="route_root_mode_need_root">未检测到Root迹象，Root模式无法开启。</string>
     <string name="route_root_authorization_not_requested">Root授权：本会话尚未确认。</string>
     <string name="route_root_authorization_session_confirmed">Root授权：已确认本次测试会话，尚未请求su授权。</string>
     <string name="route_root_authorization_granted">Root授权：su探测已通过。</string>

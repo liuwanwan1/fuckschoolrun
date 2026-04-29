@@ -37,6 +37,22 @@
             android:textColor="#455A64"
             android:textSize="13sp" />
 
+        <Switch
+            android:id="@+id/switch_dialog_root_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_mode_switch" />
+
+        <TextView
+            android:id="@+id/tv_dialog_root_mode_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/route_root_mode_locked_hint"
+            android:textColor="#455A64"
+            android:textSize="12sp" />
+
         <TextView
             android:id="@+id/tv_dialog_root_status"
             android:layout_width="match_parent"

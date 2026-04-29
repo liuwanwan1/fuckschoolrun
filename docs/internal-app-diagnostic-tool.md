@@ -8,6 +8,7 @@
 
 Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 
+- Root 模式新增总开关；只有 DEBUG 内测构建、设备检测到 Root 迹象并手动开启总开关后，才显示环境、模块、日志等高级控件。未检测到 Root 时总开关保持禁用，避免误触发诊断链路。
 - 工具启动时检测 `org.lsposed.manager` 是否安装；未检测到时禁用作用域跳转并提示安装 LSPosed。
 - 本应用按 LSPosed 模块声明：`AndroidManifest.xml` 写入 `xposedmodule`、`xposedminversion=82`、`xposedscope`，`assets/xposed_init` 指向 `RootDiagnosticLsposedModule`。
 - 目标 APK 不再由本应用枚举安装列表选择；点击按钮会打开 LSPosed 管理器，由测试人员在本模块的作用域页面勾选目标 APK。
@@ -19,7 +20,7 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 
 当前模块与 Root 能力开关一一对应：
 
-- 定位信号模拟：Hook `LocationManager` 和 `Location`，注入 GPS/NMEA/卫星字段测试数据；可设置经纬度、速度、卫星数和 HDOP。
+- 定位信号模拟：Hook `LocationManager` 和 `Location`，注入 GPS/NMEA/卫星字段测试数据；路线模拟开始后仍以 `ServiceGo` 原始 test provider/NMEA 注入为主，LSPosed 模块实时接收当前路线帧经纬度和速度作为辅助增强，不要求用户手动填写位置。
 - 基站/Wi-Fi 信号模拟：Hook Wi-Fi 和 Telephony 读取接口，测试环境一致性验证；可设置 BSSID、SSID、运营商和国家码。
 - 特定检测绕过测试：Hook root、调试、mock location 等检测接口返回值；可单独开启 root 文件/命令、调试器、mock location 返回值控制。
 - 目标应用内部 Hook：在 LSPosed 作用域进程内保留内部检测函数测试计划；可设置最多 Hook 方法数。
@@ -32,6 +33,7 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 
 - DEBUG 内测构建启用 `BuildConfig.INTERNAL_ROOT_TESTING_ENABLED`
 - 应用构建目标为 Android 15 / API 35；Android 13+ 会请求通知权限，Android 14+ 已声明 location 前台服务权限
+- Root 模式总开关已开启，且当前设备环境检测到 Root 迹象
 - 设备已安装并启用 LSPosed 管理器 `org.lsposed.manager`
 - 已确认本次 Root 测试会话
 - 已在 LSPosed 管理器中启用本模块，并在作用域中勾选目标 APK

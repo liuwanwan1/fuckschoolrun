@@ -25,6 +25,8 @@ public final class RootDiagnosticSessionController {
     private RootFeatureConfig.InjectionFramework activeInjectionFramework = RootFeatureConfig.InjectionFramework.NONE;
     private long activeStartedAtMillis;
     private List<RootDiagnosticModule> activeModules = Collections.emptyList();
+    private RootDiagnosticSettings activeSettings = RootDiagnosticSettings.defaults();
+    private long lastRouteLocationEventAtMillis;
     private File activeScriptFile;
     private String activeManualAttachCommand = "";
     private String activeManualSpawnCommand = "";
@@ -79,6 +81,8 @@ public final class RootDiagnosticSessionController {
         activeInjectionFramework = config.getInjectionFramework();
         activeStartedAtMillis = System.currentTimeMillis();
         activeModules = new ArrayList<>(modules);
+        activeSettings = settings;
+        lastRouteLocationEventAtMillis = 0L;
         events.clear();
         eventListener = listener;
         latestReport = null;
@@ -151,6 +155,8 @@ public final class RootDiagnosticSessionController {
             activeInjectionFramework = RootFeatureConfig.InjectionFramework.NONE;
             activeStartedAtMillis = 0L;
             activeModules = Collections.emptyList();
+            activeSettings = RootDiagnosticSettings.defaults();
+            lastRouteLocationEventAtMillis = 0L;
             activeScriptFile = null;
             activeManualAttachCommand = "";
             activeManualSpawnCommand = "";
@@ -205,6 +211,8 @@ public final class RootDiagnosticSessionController {
         activeInjectionFramework = RootFeatureConfig.InjectionFramework.NONE;
         activeStartedAtMillis = 0L;
         activeModules = Collections.emptyList();
+        activeSettings = RootDiagnosticSettings.defaults();
+        lastRouteLocationEventAtMillis = 0L;
         activeScriptFile = null;
         activeManualAttachCommand = "";
         activeManualSpawnCommand = "";
@@ -216,6 +224,31 @@ public final class RootDiagnosticSessionController {
 
     public synchronized boolean isRunning() {
         return !activeSessionId.isEmpty();
+    }
+
+    public synchronized void syncRouteLocation(double longitude, double latitude, float speedMetersPerSecond) {
+        if (!isRunning()
+                || activeInjectionFramework != RootFeatureConfig.InjectionFramework.LSPOSED
+                || !activeModules.contains(RootDiagnosticModule.LOCATION_NMEA)) {
+            return;
+        }
+        activeSettings = activeSettings.withLocation(
+                latitude,
+                longitude,
+                speedMetersPerSecond,
+                activeSettings.getLocationSatellites(),
+                activeSettings.getLocationHdop()
+        );
+        LsposedDiagnosticBridge.broadcastUpdateLocation(appContext, activeSessionId, activeSettings);
+        long now = System.currentTimeMillis();
+        if (now - lastRouteLocationEventAtMillis >= 3000L) {
+            lastRouteLocationEventAtMillis = now;
+            recordEvent(RootDiagnosticModule.LOCATION_NMEA.getId(), "route_location_sync",
+                    String.format(java.util.Locale.US, "lat=%.6f, lon=%.6f, speed=%.2fm/s",
+                            activeSettings.getLocationLatitude(),
+                            activeSettings.getLocationLongitude(),
+                            activeSettings.getLocationSpeedMetersPerSecond()));
+        }
     }
 
     @NonNull

@@ -12,6 +12,7 @@ import java.util.Map;
 public final class RootFeatureConfig {
     private static final String KEY_VERSION = "version";
     private static final String KEY_UPDATED_AT = "updatedAt";
+    private static final String KEY_ROOT_MODE_ENABLED = "rootModeEnabled";
     private static final String KEY_INJECTION_FRAMEWORK = "injectionFramework";
     private static final String KEY_TARGET_PACKAGE = "targetPackage";
     private static final String KEY_FEATURES = "features";
@@ -24,6 +25,7 @@ public final class RootFeatureConfig {
 
     private final int version;
     private final long updatedAtMillis;
+    private final boolean rootModeEnabled;
     private final InjectionFramework injectionFramework;
     private final String targetPackageName;
     private final EnumMap<RootFeature, Boolean> switches;
@@ -31,12 +33,14 @@ public final class RootFeatureConfig {
     public RootFeatureConfig(
             int version,
             long updatedAtMillis,
+            boolean rootModeEnabled,
             @NonNull InjectionFramework injectionFramework,
             @NonNull String targetPackageName,
             @NonNull Map<RootFeature, Boolean> switches
     ) {
         this.version = Math.max(1, version);
         this.updatedAtMillis = updatedAtMillis <= 0L ? System.currentTimeMillis() : updatedAtMillis;
+        this.rootModeEnabled = rootModeEnabled;
         this.injectionFramework = injectionFramework;
         this.targetPackageName = targetPackageName.trim();
         this.switches = new EnumMap<>(RootFeature.class);
@@ -57,6 +61,7 @@ public final class RootFeatureConfig {
         return new RootFeatureConfig(
                 1,
                 System.currentTimeMillis(),
+                false,
                 InjectionFramework.LSPOSED,
                 "",
                 defaults
@@ -86,6 +91,7 @@ public final class RootFeatureConfig {
             return new RootFeatureConfig(
                     root.optInt(KEY_VERSION, 1),
                     root.optLong(KEY_UPDATED_AT, System.currentTimeMillis()),
+                    root.optBoolean(KEY_ROOT_MODE_ENABLED, false),
                     parseInjectionFramework(root.optString(KEY_INJECTION_FRAMEWORK, InjectionFramework.LSPOSED.name())),
                     root.optString(KEY_TARGET_PACKAGE, ""),
                     switches
@@ -101,6 +107,7 @@ public final class RootFeatureConfig {
             JSONObject root = new JSONObject();
             root.put(KEY_VERSION, version);
             root.put(KEY_UPDATED_AT, updatedAtMillis);
+            root.put(KEY_ROOT_MODE_ENABLED, rootModeEnabled);
             root.put(KEY_INJECTION_FRAMEWORK, injectionFramework.name());
             root.put(KEY_TARGET_PACKAGE, targetPackageName);
             JSONObject features = new JSONObject();
@@ -121,6 +128,7 @@ public final class RootFeatureConfig {
         return new RootFeatureConfig(
                 version + 1,
                 System.currentTimeMillis(),
+                rootModeEnabled,
                 injectionFramework,
                 targetPackageName,
                 nextSwitches
@@ -132,6 +140,7 @@ public final class RootFeatureConfig {
         return new RootFeatureConfig(
                 version + 1,
                 System.currentTimeMillis(),
+                rootModeEnabled,
                 injectionFramework,
                 targetPackageName == null ? "" : targetPackageName,
                 switches
@@ -143,7 +152,20 @@ public final class RootFeatureConfig {
         return new RootFeatureConfig(
                 version + 1,
                 System.currentTimeMillis(),
+                rootModeEnabled,
                 framework,
+                targetPackageName,
+                switches
+        );
+    }
+
+    @NonNull
+    public RootFeatureConfig withRootModeEnabled(boolean enabled) {
+        return new RootFeatureConfig(
+                version + 1,
+                System.currentTimeMillis(),
+                enabled,
+                injectionFramework,
                 targetPackageName,
                 switches
         );
@@ -155,6 +177,10 @@ public final class RootFeatureConfig {
 
     public long getUpdatedAtMillis() {
         return updatedAtMillis;
+    }
+
+    public boolean isRootModeEnabled() {
+        return rootModeEnabled;
     }
 
     @NonNull
