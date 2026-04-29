@@ -31,6 +31,7 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 开始测试前必须满足：
 
 - DEBUG 内测构建启用 `BuildConfig.INTERNAL_ROOT_TESTING_ENABLED`
+- 应用构建目标为 Android 15 / API 35；Android 13+ 会请求通知权限，Android 14+ 已声明 location 前台服务权限
 - 设备已安装并启用 LSPosed 管理器 `org.lsposed.manager`
 - 已确认本次 Root 测试会话
 - 已在 LSPosed 管理器中启用本模块，并在作用域中勾选目标 APK
@@ -38,6 +39,14 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 - 点击 `开始模拟`，诊断自动启动；不再在目标 APK 选择区域提供独立开始/结束按钮
 
 Frida 脚本生成与命令注入保留为代码层回退能力；当前 UI 默认使用 LSPosed 作用域模式。
+
+Android 15 兼容处理：
+
+- `compileSdk` / `targetSdkVersion` 已升到 35。
+- v35 主题临时设置 `android:windowOptOutEdgeToEdgeEnforcement=true`，避免旧页面在 Android 15 强制 edge-to-edge 下被系统栏遮挡。
+- 动态广播接收器在 Android 13+ 使用显式 exported flag；下载完成广播额外校验 download id。
+- `ServiceGo` 不再在 Android 12+ 的 task removed 回调里自启动前台服务，避免触发后台前台服务启动限制。
+- Debug APK 已可通过 `zipalign -c -P 16 -v 4` 检查 16 KB APK 对齐；当前第三方 Baidu `libindoor.so` 仍是 4 KB ELF LOAD alignment，若未来要完整覆盖 16 KB page-size 设备，需要替换为 16 KB ELF 对齐版本。
 
 ## 输出
 

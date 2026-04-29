@@ -18,6 +18,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.provider.Settings;
@@ -1403,10 +1404,21 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
         mDownloadBdRcv = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
+                long downloadId = intent == null
+                        ? -1L
+                        : intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L);
+                if (downloadId != mDownloadId) {
+                    return;
+                }
                 installNewVersion();
             }
         };
-        registerReceiver(mDownloadBdRcv, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+        IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(mDownloadBdRcv, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(mDownloadBdRcv, filter);
+        }
     }
 
     private void checkUpdateVersion(boolean result) {

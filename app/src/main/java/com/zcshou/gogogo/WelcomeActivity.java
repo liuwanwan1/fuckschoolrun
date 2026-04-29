@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -335,7 +336,12 @@ public class WelcomeActivity extends AppCompatActivity {
         List<String> missing = new ArrayList<>();
         collectMissingPermission(missing, Manifest.permission.ACCESS_FINE_LOCATION);
         collectMissingPermission(missing, Manifest.permission.ACCESS_COARSE_LOCATION);
-        collectMissingPermission(missing, Manifest.permission.READ_EXTERNAL_STORAGE);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            collectMissingPermission(missing, Manifest.permission.READ_EXTERNAL_STORAGE);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            collectMissingPermission(missing, Manifest.permission.POST_NOTIFICATIONS);
+        }
         collectMissingPermission(missing, Manifest.permission.READ_PHONE_STATE);
         return missing;
     }

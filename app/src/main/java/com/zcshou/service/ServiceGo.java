@@ -121,6 +121,11 @@ public class ServiceGo extends Service {
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            XLog.w("SERVICEGO: skip foreground-service self restart after task removal on Android 12+");
+            super.onTaskRemoved(rootIntent);
+            return;
+        }
         Intent restartIntent = new Intent(getApplicationContext(), ServiceGo.class);
         restartIntent.putExtra(MainActivity.LNG_MSG_ID, mCurLng);
         restartIntent.putExtra(MainActivity.LAT_MSG_ID, mCurLat);
