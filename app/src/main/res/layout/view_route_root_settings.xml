@@ -154,6 +154,97 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/tv_dialog_root_feature_config_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#F5F7FA"
+            android:padding="8dp"
+            android:text="@string/route_root_feature_config_loading"
+            android:textColor="#455A64"
+            android:textSize="12sp" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_environment"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_switch_environment" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_su_probe"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_su_probe" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_encrypted_audit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_encrypted_audit" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_gm_interface"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_gm_interface" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_frida_injection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_frida_injection" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_nmea"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_nmea" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_signal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_signal" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_bypass"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_bypass" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_hook"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_hook" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_service_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_service_log" />
+
+        <Switch
+            android:id="@+id/switch_dialog_root_sensor"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_switch_sensor" />
+
+        <Button
+            android:id="@+id/btn_dialog_root_reload_config"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/route_root_reload_config_button" />
+
+        <Button
+            android:id="@+id/btn_dialog_root_generate_gm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/route_root_generate_gm_button" />
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
