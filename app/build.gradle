@@ -86,11 +86,13 @@ android {
                 signingConfig signingConfigs.local
             }
             multiDexEnabled true
+            buildConfigField "boolean", "INTERNAL_ROOT_TESTING_ENABLED", "false"
         }
         debug {
             if (projectKeystore.exists()) {
                 signingConfig signingConfigs.local
             }
+            buildConfigField "boolean", "INTERNAL_ROOT_TESTING_ENABLED", "true"
         }
     }
     buildFeatures {
