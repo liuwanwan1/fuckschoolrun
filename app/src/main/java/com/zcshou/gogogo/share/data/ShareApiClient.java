@@ -175,6 +175,20 @@ public final class ShareApiClient {
         }
     }
 
+    public InternalAccountProfile getInternalAccountProfile(String token) throws IOException {
+        Request request = newRequestBuilder(buildUrl("api/auth/me"), token).get().build();
+        String responseText = executeRequest(request);
+        try {
+            JSONObject root = new JSONObject(responseText);
+            if (!root.optBoolean("authenticated", false)) {
+                throw new IOException("Internal account is not authenticated");
+            }
+            return parseInternalAccount(root.optJSONObject("account"));
+        } catch (JSONException exception) {
+            throw new IOException("Unable to parse auth profile response", exception);
+        }
+    }
+
     public List<UsageTipSummary> getUsageTips(String query, int page, int pageSize, String token) throws IOException {
         HttpUrl url = buildUrl("api/tips").newBuilder()
                 .addQueryParameter("q", query == null ? "" : query)
@@ -529,6 +543,8 @@ public final class ShareApiClient {
                 optString(jsonObject, "id"),
                 optString(jsonObject, "username"),
                 optString(jsonObject, "remark"),
+                optString(jsonObject, "testerType"),
+                optString(jsonObject, "testerTypeLabel"),
                 optString(jsonObject, "status")
         );
     }

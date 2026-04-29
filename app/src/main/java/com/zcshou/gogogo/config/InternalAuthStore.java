@@ -13,6 +13,8 @@ public final class InternalAuthStore {
     private static final String KEY_ACCOUNT_ID = "account_id";
     private static final String KEY_USERNAME = "username";
     private static final String KEY_REMARK = "remark";
+    private static final String KEY_TESTER_TYPE = "tester_type";
+    private static final String KEY_TESTER_TYPE_LABEL = "tester_type_label";
     private static final String KEY_STATUS = "status";
 
     private final SharedPreferences preferences;
@@ -27,8 +29,14 @@ public final class InternalAuthStore {
                 .putString(KEY_ACCOUNT_ID, profile == null ? "" : normalize(profile.getId()))
                 .putString(KEY_USERNAME, profile == null ? "" : normalize(profile.getUsername()))
                 .putString(KEY_REMARK, profile == null ? "" : normalize(profile.getRemark()))
+                .putString(KEY_TESTER_TYPE, profile == null ? "" : normalize(profile.getTesterType()))
+                .putString(KEY_TESTER_TYPE_LABEL, profile == null ? "" : normalize(profile.getTesterTypeLabel()))
                 .putString(KEY_STATUS, profile == null ? "" : normalize(profile.getStatus()))
                 .apply();
+    }
+
+    public void saveProfile(@Nullable InternalAccountProfile profile) {
+        saveSession(getToken(), profile);
     }
 
     public void clear() {
@@ -53,6 +61,8 @@ public final class InternalAuthStore {
                 preferences.getString(KEY_ACCOUNT_ID, ""),
                 username,
                 preferences.getString(KEY_REMARK, ""),
+                preferences.getString(KEY_TESTER_TYPE, ""),
+                preferences.getString(KEY_TESTER_TYPE_LABEL, ""),
                 preferences.getString(KEY_STATUS, "")
         );
     }

@@ -9,6 +9,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 
 import com.acooldog.toolbox.config.InternalAuthStore;
+import com.acooldog.toolbox.share.domain.model.InternalAccountProfile;
 import com.acooldog.toolbox.share.domain.model.InternalLoginResult;
 import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.utils.GoUtils;
@@ -66,16 +67,18 @@ public class InternalLoginActivity extends BaseActivity {
     }
 
     private void refreshSessionState() {
-        if (authStore.getProfile() == null) {
+        InternalAccountProfile profile = authStore.getProfile();
+        if (profile == null) {
             statusView.setText(getString(R.string.internal_login_status_logged_out));
             return;
         }
         statusView.setText(getString(
                 R.string.internal_login_status_logged_in,
-                authStore.getProfile().getUsername()
+                profile.getUsername(),
+                profile.getTesterTypeLabel()
         ));
         if (usernameInput != null) {
-            usernameInput.setText(authStore.getProfile().getUsername());
+            usernameInput.setText(profile.getUsername());
         }
     }
 
