@@ -68,6 +68,10 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<String> hookedPhoneStateListenerClasses =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<String> installedPackageHooks =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<String> registeredControlReceiverPackages =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Method> hookedRegisterMethods =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Method> hookedSignalStrengthMethods =
@@ -121,6 +125,10 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         if (packageName == null || shouldSkipPackage(packageName)) {
             return;
         }
+        if (!installedPackageHooks.add(packageName)) {
+            XposedBridge.log("SchoolRunDiag duplicate load skipped for package: " + packageName);
+            return;
+        }
         XposedBridge.log("SchoolRunDiag LSPosed loaded for package: " + packageName);
         installSessionReceiver(packageName);
         installLocationHooks(packageName);
@@ -142,6 +150,9 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                 protected void afterHookedMethod(MethodHookParam param) {
                     Application application = (Application) param.thisObject;
                     diagnosticEventContext = application.getApplicationContext();
+                    if (!registeredControlReceiverPackages.add(packageName)) {
+                        return;
+                    }
                     BroadcastReceiver receiver = new BroadcastReceiver() {
                         @Override
                         public void onReceive(Context context, Intent intent) {
@@ -188,16 +199,34 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         }
         String command = intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_COMMAND);
         if (LsposedDiagnosticBridge.COMMAND_START.equals(command)) {
-            activeSessionId = safeString(intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SESSION_ID));
+            String nextSessionId = safeString(intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SESSION_ID));
+            if (nextSessionId.isEmpty()) {
+                return;
+            }
             List<RootDiagnosticModule> modules = LsposedDiagnosticBridge.parseModules(
                     intent.getStringArrayExtra(LsposedDiagnosticBridge.EXTRA_MODULE_IDS)
             );
             Set<RootDiagnosticModule> nextModules = Collections.newSetFromMap(new ConcurrentHashMap<>());
             nextModules.addAll(modules);
-            activeModules = nextModules;
-            activeSettings = RootDiagnosticSettings.fromJson(
+            RootDiagnosticSettings nextSettings = RootDiagnosticSettings.fromJson(
                     intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SETTINGS_JSON)
             );
+            if (active && nextSessionId.equals(activeSessionId)) {
+                activeModules = nextModules;
+                activeSettings = nextSettings;
+                if (activeModules.contains(RootDiagnosticModule.LOCATION_NMEA)) {
+                    scheduleLocationPulseLoop(packageName);
+                }
+                if (activeModules.contains(RootDiagnosticModule.SENSOR_INJECTION)) {
+                    scheduleSensorPulseLoop(packageName);
+                }
+                logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_session_start_replay_ignored",
+                        "忽略重复start广播，保留当前会话状态，模块数=" + modules.size());
+                return;
+            }
+            activeSessionId = nextSessionId;
+            activeModules = nextModules;
+            activeSettings = nextSettings;
             active = true;
             resetSensorState();
             scheduleLocationPulseLoop(packageName);
