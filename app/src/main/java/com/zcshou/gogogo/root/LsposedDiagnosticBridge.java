@@ -19,11 +19,13 @@ public final class LsposedDiagnosticBridge {
     public static final String LSPOSED_PARASITIC_INDICATOR = "com.android.shell:LSPosed寄生管理器";
     public static final String ACTION_DIAGNOSTIC_CONTROL = "com.acooldog.toolbox.root.DIAGNOSTIC_CONTROL";
     public static final String ACTION_DIAGNOSTIC_STATE_REQUEST = "com.acooldog.toolbox.root.DIAGNOSTIC_STATE_REQUEST";
+    public static final String ACTION_DIAGNOSTIC_EVENT = "com.acooldog.toolbox.root.DIAGNOSTIC_EVENT";
     public static final String EXTRA_COMMAND = "command";
     public static final String EXTRA_SESSION_ID = "sessionId";
     public static final String EXTRA_MODULE_IDS = "moduleIds";
     public static final String EXTRA_SETTINGS_JSON = "settingsJson";
     public static final String EXTRA_TARGET_PACKAGE = "targetPackage";
+    public static final String EXTRA_EVENT_JSON = "eventJson";
     public static final String COMMAND_START = "start";
     public static final String COMMAND_STOP = "stop";
     public static final String COMMAND_UPDATE_LOCATION = "update_location";

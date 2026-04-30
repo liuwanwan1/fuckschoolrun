@@ -21,8 +21,8 @@ Root 模式面板新增 `打开LSPosed选择目标APK` 和模块设置入口：
 
 当前模块与 Root 能力开关一一对应：
 
-- 定位信号模拟：Hook `LocationManager` 和 `Location`，注入 GPS/NMEA/卫星字段测试数据；路线模拟开始后仍以 `ServiceGo` 原始 test provider/NMEA 注入为主，LSPosed 模块实时接收当前路线帧经纬度和速度作为辅助增强，不要求用户手动填写位置。
-- 基站/Wi-Fi 信号模拟：Hook Wi-Fi 和 Telephony 读取接口，测试环境一致性验证；可设置 BSSID、SSID、运营商和国家码。
+- 定位信号模拟：Hook `LocationManager` 和 `Location`，注入 GPS/NMEA/卫星字段测试数据；路线模拟开始后仍以 `ServiceGo` 原始 test provider/NMEA 注入为主，LSPosed 模块实时接收当前路线帧经纬度和速度作为辅助增强，不要求用户手动填写位置。GPS 强度只允许选择弱/中/强档位，并联动卫星数和 HDOP。
+- 基站/Wi-Fi 信号模拟：Hook Wi-Fi 和 Telephony 读取接口，测试环境一致性验证；封闭测试环境画像自动模拟 BSSID、SSID、运营商和国家码，这些字段在 UI 中只读；测试人员只可选择弱/中/强信号档位，Wi-Fi RSSI、Cell dBm 与 GPS 强度同步联动。
 - 特定检测绕过测试：Hook root、调试、mock location 等检测接口返回值；可单独开启 root 文件/命令、调试器、mock location 返回值控制。
 - 目标应用内部 Hook：在 LSPosed 作用域进程内保留内部检测函数测试计划；可设置最多 Hook 方法数。
 - 系统服务数据流控制：控制目标进程内剪贴板、蓝牙、NFC 交互；可单独控制剪贴板、蓝牙、NFC 返回值。
@@ -63,3 +63,5 @@ Android 9-16 兼容处理：
 - `files/root-diagnostic/<session>.report.json`
 
 报告包含检测机制有效性分析、传感器健壮性评估、时间序列事件日志和代码级修复建议。关键操作继续写入 AES-GCM 加密审计日志。
+
+Root 设置底部新增 `日志输出` 模块：诊断运行期间，LSPosed 作用域进程会采集目标进程内的 `android.util.Log`、`System.out/err` 和 `Throwable.printStackTrace`，按日期写入 `files/root-diagnostic/process-logs/<yyyy-MM-dd>.log`。页面按日期分类展示日志，单日详情从新到旧排序，并提供一键复制给开发人员排查兼容性问题。

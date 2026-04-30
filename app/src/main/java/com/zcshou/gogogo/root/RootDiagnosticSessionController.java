@@ -295,6 +295,17 @@ public final class RootDiagnosticSessionController {
         return lines;
     }
 
+    public synchronized boolean recordExternalEvent(@NonNull RootDiagnosticEvent event) {
+        if (!isRunning()) {
+            return false;
+        }
+        if (!event.getSessionId().isEmpty() && !activeSessionId.equals(event.getSessionId())) {
+            return false;
+        }
+        addEvent(event);
+        return true;
+    }
+
     @Nullable
     public synchronized RootDiagnosticSessionReport getLatestReport() {
         return latestReport;

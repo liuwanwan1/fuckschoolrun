@@ -39,4 +39,28 @@ public class RootSignalStrengthProfileTest {
         assertEquals(-101, settings.getCellDbm());
         assertEquals(6, settings.getCellJitterDbm());
     }
+
+    @Test
+    public void signalScenario_linksGpsWifiAndCellStrength() {
+        RootDiagnosticSettings settings = RootDiagnosticSettings.defaults()
+                .withSignalScenario(RootDiagnosticSettings.SignalScenario.WEAK);
+
+        assertEquals(RootDiagnosticSettings.SignalScenario.WEAK, settings.resolveSignalScenario());
+        assertEquals(3, settings.getLocationSatellites());
+        assertEquals(5.5d, settings.getLocationHdop(), 0.0001d);
+        assertEquals(-90, settings.getWifiRssiDbm());
+        assertEquals(-116, settings.getCellDbm());
+    }
+
+    @Test
+    public void automaticSignalIdentity_resetsClosedLabProfile() {
+        RootDiagnosticSettings settings = RootDiagnosticSettings.defaults()
+                .withSignal("02:00:00:11:22:33", "Internal-Lab", "46001", "us")
+                .withAutomaticSignalIdentity();
+
+        assertEquals("02:00:00:7a:11:29", settings.getWifiBssid());
+        assertEquals("Internal-Test-WiFi", settings.getWifiSsid());
+        assertEquals("46000", settings.getNetworkOperator());
+        assertEquals("cn", settings.getNetworkCountry());
+    }
 }

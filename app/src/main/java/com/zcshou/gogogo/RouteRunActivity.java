@@ -2,6 +2,8 @@ package com.acooldog.toolbox;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -96,11 +98,14 @@ import com.acooldog.toolbox.route.domain.service.RouteEditUtils;
 import com.acooldog.toolbox.route.domain.service.LocationSimulationGateway;
 import com.acooldog.toolbox.route.presentation.RouteRunViewModel;
 import com.acooldog.toolbox.root.RootDiagnosticCompatibilityCatalog;
+import com.acooldog.toolbox.root.RootDiagnosticEvent;
+import com.acooldog.toolbox.root.RootDiagnosticLogStore;
 import com.acooldog.toolbox.root.RootEnvironmentInspector;
 import com.acooldog.toolbox.root.RootEnvironmentReport;
 import com.acooldog.toolbox.root.RootDiagnosticModule;
 import com.acooldog.toolbox.root.RootDiagnosticSettings;
 import com.acooldog.toolbox.root.RootDiagnosticSettings.LocationSimulationMode;
+import com.acooldog.toolbox.root.RootDiagnosticSettings.SignalScenario;
 import com.acooldog.toolbox.root.RootDiagnosticSettingsStore;
 import com.acooldog.toolbox.root.RootDiagnosticSessionController;
 import com.acooldog.toolbox.root.RootDiagnosticSessionReport;
@@ -200,6 +205,7 @@ public class RouteRunActivity extends BaseActivity {
     private RootFeatureRuntimeController rootFeatureRuntimeController;
     private RootDiagnosticSessionController rootDiagnosticSessionController;
     private RootDiagnosticSettingsStore rootDiagnosticSettingsStore;
+    private RootDiagnosticLogStore rootDiagnosticLogStore;
     private RootEnvironmentReport latestRootEnvironmentReport;
     private RootFeatureConfig latestRootFeatureConfig;
     private RootFeatureRuntimeReport latestRootFeatureRuntimeReport;
@@ -215,6 +221,7 @@ public class RouteRunActivity extends BaseActivity {
     private float lastRouteDiagnosticSpeed;
     private float lastRouteDiagnosticBearing;
     private BroadcastReceiver rootDiagnosticStateRequestReceiver;
+    private BroadcastReceiver rootDiagnosticEventReceiver;
     private SensorManager sensorManager;
     private Sensor stepCounterSensor;
     private Sensor stepDetectorSensor;
@@ -443,10 +450,12 @@ public class RouteRunActivity extends BaseActivity {
         rootFeatureRuntimeController = new RootFeatureRuntimeController(getApplicationContext());
         rootDiagnosticSessionController = new RootDiagnosticSessionController(getApplicationContext());
         rootDiagnosticSettingsStore = new RootDiagnosticSettingsStore(getApplicationContext());
+        rootDiagnosticLogStore = new RootDiagnosticLogStore(getApplicationContext());
         latestRootFeatureConfig = rootFeatureConfigStore.load();
         latestRootFeatureRuntimeReport = rootFeatureRuntimeController.reload(latestRootFeatureConfig);
         latestRootDiagnosticSettings = rootDiagnosticSettingsStore.load();
         registerRootDiagnosticStateRequestReceiver();
+        registerRootDiagnosticEventReceiver();
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         stepCounterSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER);
         stepDetectorSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR);
@@ -558,6 +567,7 @@ public class RouteRunActivity extends BaseActivity {
             appendRootAudit("目标APK诊断因页面销毁自动结束: " + result.getMessage());
         }
         unregisterRootDiagnosticStateRequestReceiver();
+        unregisterRootDiagnosticEventReceiver();
         if (bound) {
             unbindService(serviceConnection);
             bound = false;
@@ -610,6 +620,50 @@ public class RouteRunActivity extends BaseActivity {
             // Receiver may already be gone during activity teardown.
         }
         rootDiagnosticStateRequestReceiver = null;
+    }
+
+    private void registerRootDiagnosticEventReceiver() {
+        if (rootDiagnosticEventReceiver != null) {
+            return;
+        }
+        rootDiagnosticEventReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null
+                        || !LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_EVENT.equals(intent.getAction())
+                        || rootDiagnosticSessionController == null) {
+                    return;
+                }
+                RootDiagnosticEvent event = RootDiagnosticEvent.fromJson(
+                        intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_EVENT_JSON)
+                );
+                if (event == null || !rootDiagnosticSessionController.recordExternalEvent(event)) {
+                    return;
+                }
+                if (rootDiagnosticLogStore != null) {
+                    rootDiagnosticLogStore.append(event);
+                }
+                renderRootDiagnosticPanel();
+            }
+        };
+        IntentFilter filter = new IntentFilter(LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_EVENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(rootDiagnosticEventReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(rootDiagnosticEventReceiver, filter);
+        }
+    }
+
+    private void unregisterRootDiagnosticEventReceiver() {
+        if (rootDiagnosticEventReceiver == null) {
+            return;
+        }
+        try {
+            unregisterReceiver(rootDiagnosticEventReceiver);
+        } catch (Exception ignored) {
+            // Receiver may already be gone during activity teardown.
+        }
+        rootDiagnosticEventReceiver = null;
     }
 
     @Override
@@ -2808,6 +2862,11 @@ public class RouteRunActivity extends BaseActivity {
                         "审计 日志 audit log",
                         v -> showSimulationSettingsFormPage(getString(R.string.route_root_audit_title), true,
                                 R.id.section_settings_root_logs));
+                addSimulationSettingsEntry(page, rows, rootCategory,
+                        "日志输出",
+                        rootDiagnosticLogSummary(),
+                        "日志 输出 报错 error crash logcat process",
+                        v -> showRootDiagnosticLogDatePage());
             }
         }
 
@@ -2963,6 +3022,8 @@ public class RouteRunActivity extends BaseActivity {
             addRootDropdownModule(labels, actions, RootDiagnosticModule.TARGET_APP_HOOK);
             addRootDropdownModule(labels, actions, RootDiagnosticModule.SERVICE_STREAM);
             addRootDropdownModule(labels, actions, RootDiagnosticModule.SENSOR_INJECTION);
+            labels.add("日志输出");
+            actions.add(v -> showRootDiagnosticLogDatePage());
         }
 
         Spinner spinner = new Spinner(this);
@@ -3006,6 +3067,128 @@ public class RouteRunActivity extends BaseActivity {
     ) {
         labels.add(module.getTitle());
         actions.add(v -> showRootModuleSettingsDialog(module));
+    }
+
+    @NonNull
+    private String rootDiagnosticLogSummary() {
+        if (rootDiagnosticLogStore == null) {
+            return "暂无目标进程日志";
+        }
+        List<String> dates = rootDiagnosticLogStore.listDates();
+        if (dates.isEmpty()) {
+            return "暂无目标进程日志";
+        }
+        return "已按日期归档 " + dates.size() + " 天，最近 " + dates.get(0);
+    }
+
+    private void showRootDiagnosticLogDatePage() {
+        if (!isRootControlsUnlocked()) {
+            showRootModeGateToast();
+            return;
+        }
+        if (simulationSettingsOverlay == null) {
+            showSimulationSettingsDialog();
+        }
+        simulationSettingsSubPageVisible = true;
+        simulationSettingsActiveSaveAction = null;
+        if (simulationSettingsTitleView != null) {
+            simulationSettingsTitleView.setText("日志输出");
+        }
+        if (simulationSettingsPrimaryButton != null) {
+            simulationSettingsPrimaryButton.setVisibility(View.GONE);
+        }
+
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        int horizontalPadding = Math.round(dp(16f));
+        page.setPadding(horizontalPadding, Math.round(dp(14f)), horizontalPadding, Math.round(dp(24f)));
+        scrollView.addView(page, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        addRootSettingsText(page, "目标作用域进程内的Log、System.out/err和异常堆栈会在诊断运行时自动归档。选择日期后可复制当天日志发给开发人员。");
+        TextView category = addSimulationSettingsCategory(page, "日期分类");
+        List<SimulationSettingsHomeRow> rows = new ArrayList<>();
+        List<String> dates = rootDiagnosticLogStore == null ? new ArrayList<>() : rootDiagnosticLogStore.listDates();
+        if (dates.isEmpty()) {
+            addRootSettingsText(page, "暂无日志。开启Root测试并启动路线模拟后，目标进程日志会自动写入这里。");
+        } else {
+            for (String date : dates) {
+                int count = rootDiagnosticLogStore == null ? 0 : rootDiagnosticLogStore.countEventsForDate(date);
+                addSimulationSettingsEntry(
+                        page,
+                        rows,
+                        category,
+                        date,
+                        count + " 条日志，从新到旧排序",
+                        "日志 " + date,
+                        v -> showRootDiagnosticLogDetailPage(date)
+                );
+            }
+        }
+        setSimulationSettingsContent(scrollView);
+    }
+
+    private void showRootDiagnosticLogDetailPage(@NonNull String date) {
+        if (simulationSettingsOverlay == null) {
+            showSimulationSettingsDialog();
+        }
+        simulationSettingsSubPageVisible = true;
+        simulationSettingsActiveSaveAction = null;
+        String logText = rootDiagnosticLogStore == null
+                ? ""
+                : rootDiagnosticLogStore.buildTextForDate(date);
+        if (simulationSettingsTitleView != null) {
+            simulationSettingsTitleView.setText("日志输出 " + date);
+        }
+        if (simulationSettingsPrimaryButton != null) {
+            simulationSettingsPrimaryButton.setVisibility(View.VISIBLE);
+            simulationSettingsPrimaryButton.setText("复制日志");
+            simulationSettingsPrimaryButton.setOnClickListener(v -> copyRootDiagnosticLog(date, logText));
+        }
+
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        int horizontalPadding = Math.round(dp(16f));
+        page.setPadding(horizontalPadding, Math.round(dp(14f)), horizontalPadding, Math.round(dp(24f)));
+        scrollView.addView(page, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        TextView logView = new TextView(this);
+        logView.setText(TextUtils.isEmpty(logText) ? "当天暂无日志。" : logText);
+        logView.setTextColor(Color.parseColor("#1F2A37"));
+        logView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        logView.setLineSpacing(dp(2f), 1.0f);
+        logView.setTextIsSelectable(true);
+        logView.setBackgroundColor(Color.WHITE);
+        logView.setPadding(
+                Math.round(dp(10f)),
+                Math.round(dp(10f)),
+                Math.round(dp(10f)),
+                Math.round(dp(10f))
+        );
+        page.addView(logView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        setSimulationSettingsContent(scrollView);
+    }
+
+    private void copyRootDiagnosticLog(@NonNull String date, @NonNull String logText) {
+        if (TextUtils.isEmpty(logText)) {
+            GoUtils.DisplayToast(this, "没有可复制的日志。");
+            return;
+        }
+        ClipboardManager clipboardManager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboardManager == null) {
+            GoUtils.DisplayToast(this, "剪贴板不可用。");
+            return;
+        }
+        clipboardManager.setPrimaryClip(ClipData.newPlainText("root-diagnostic-log-" + date, logText));
+        GoUtils.DisplayToast(this, "日志已复制。");
     }
 
     private void filterSimulationSettingsHomeRows(
@@ -3849,19 +4032,24 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull LinearLayout content,
             @NonNull RootDiagnosticSettings settings
     ) {
-        addRootSettingsText(content, "经纬度、海拔、速度和航向由路线模拟实时联动，Root 模式下采用 GlobalTraveling 接管逻辑，不支持在模块内手动填写。");
-        EditText satellitesInput = addRootSettingsEdit(content, "卫星数", settings.getLocationSatellites());
-        EditText hdopInput = addRootSettingsEdit(content, "HDOP", settings.getLocationHdop());
+        addRootSettingsText(content, "经纬度、海拔、速度和航向由路线模拟实时联动。GPS强度只允许选择弱/中/强档位，并联动卫星数、HDOP、Wi-Fi和基站强度，不支持自定义数值。");
+        Spinner scenarioSpinner = addSignalScenarioSpinner(content, settings.resolveSignalScenario());
+        EditText satellitesView = addRootSettingsReadOnly(content, "联动卫星数", "");
+        EditText hdopView = addRootSettingsReadOnly(content, "联动HDOP", "");
+        updateSignalScenarioPreview(selectedSignalScenario(scenarioSpinner), satellitesView, hdopView, null, null, null, null);
+        scenarioSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                updateSignalScenarioPreview(selectedSignalScenario(scenarioSpinner), satellitesView, hdopView, null, null, null, null);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // Keep the current preview.
+            }
+        });
         showRootSettingsDialog(RootDiagnosticModule.LOCATION_NMEA, content, () -> saveRootDiagnosticSettings(
-                settings.withLocation(
-                        settings.getLocationLatitude(),
-                        settings.getLocationLongitude(),
-                        settings.getLocationSpeedMetersPerSecond(),
-                        settings.getLocationAltitudeMeters(),
-                        settings.getLocationBearingDegrees(),
-                        parseRootSettingInt(satellitesInput, "卫星数"),
-                        parseRootSettingDouble(hdopInput, "HDOP")
-                )
+                settings.withSignalScenario(selectedSignalScenario(scenarioSpinner))
         ));
     }
 
@@ -3869,27 +4057,49 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull LinearLayout content,
             @NonNull RootDiagnosticSettings settings
     ) {
-        EditText bssidInput = addRootSettingsEdit(content, "Wi-Fi BSSID", settings.getWifiBssid());
-        EditText ssidInput = addRootSettingsEdit(content, "Wi-Fi SSID", settings.getWifiSsid());
-        EditText operatorInput = addRootSettingsEdit(content, "运营商MCC/MNC", settings.getNetworkOperator());
-        EditText countryInput = addRootSettingsEdit(content, "网络国家码", settings.getNetworkCountry());
-        EditText wifiRssiInput = addRootSettingsEdit(content, "Wi-Fi RSSI dBm (-30~-100)", settings.getWifiRssiDbm());
-        EditText wifiJitterInput = addRootSettingsEdit(content, "Wi-Fi 抖动 dBm (0~20)", settings.getWifiJitterDbm());
-        EditText cellDbmInput = addRootSettingsEdit(content, "Cell dBm (-50~-125)", settings.getCellDbm());
-        EditText cellJitterInput = addRootSettingsEdit(content, "Cell 抖动 dBm (0~20)", settings.getCellJitterDbm());
+        addRootSettingsText(content, "封闭测试环境使用内部默认Wi-Fi/基站画像自动模拟。测试人员只选择弱/中/强信号档位，Wi-Fi、Cell与GPS强度会同步变化，不支持手动填写BSSID、SSID或dBm。");
+        Spinner scenarioSpinner = addSignalScenarioSpinner(content, settings.resolveSignalScenario());
+        RootDiagnosticSettings automaticSettings = settings.withAutomaticSignalIdentity();
+        addRootSettingsReadOnly(content, "Wi-Fi BSSID", automaticSettings.getWifiBssid());
+        addRootSettingsReadOnly(content, "Wi-Fi SSID", automaticSettings.getWifiSsid());
+        addRootSettingsReadOnly(content, "运营商MCC/MNC", automaticSettings.getNetworkOperator());
+        addRootSettingsReadOnly(content, "网络国家码", automaticSettings.getNetworkCountry());
+        EditText satellitesView = addRootSettingsReadOnly(content, "联动卫星数", "");
+        EditText hdopView = addRootSettingsReadOnly(content, "联动HDOP", "");
+        EditText wifiRssiView = addRootSettingsReadOnly(content, "联动Wi-Fi RSSI", "");
+        EditText wifiJitterView = addRootSettingsReadOnly(content, "联动Wi-Fi抖动", "");
+        EditText cellDbmView = addRootSettingsReadOnly(content, "联动Cell dBm", "");
+        EditText cellJitterView = addRootSettingsReadOnly(content, "联动Cell抖动", "");
+        updateSignalScenarioPreview(
+                selectedSignalScenario(scenarioSpinner),
+                satellitesView,
+                hdopView,
+                wifiRssiView,
+                wifiJitterView,
+                cellDbmView,
+                cellJitterView
+        );
+        scenarioSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                updateSignalScenarioPreview(
+                        selectedSignalScenario(scenarioSpinner),
+                        satellitesView,
+                        hdopView,
+                        wifiRssiView,
+                        wifiJitterView,
+                        cellDbmView,
+                        cellJitterView
+                );
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // Keep the current preview.
+            }
+        });
         showRootSettingsDialog(RootDiagnosticModule.RADIO_WIFI_SIGNAL, content, () -> saveRootDiagnosticSettings(
-                settings.withSignal(
-                        requireRootSettingText(bssidInput, "Wi-Fi BSSID"),
-                        requireRootSettingText(ssidInput, "Wi-Fi SSID"),
-                        requireRootSettingText(operatorInput, "运营商MCC/MNC"),
-                        requireRootSettingText(countryInput, "网络国家码"),
-                        new RootSignalStrengthProfile(
-                                parseRootSettingInt(wifiRssiInput, "Wi-Fi RSSI"),
-                                parseRootSettingInt(wifiJitterInput, "Wi-Fi 抖动"),
-                                parseRootSettingInt(cellDbmInput, "Cell dBm"),
-                                parseRootSettingInt(cellJitterInput, "Cell 抖动")
-                        )
-                )
+                automaticSettings.withSignalScenario(selectedSignalScenario(scenarioSpinner))
         ));
     }
 
@@ -4065,6 +4275,99 @@ public class RouteRunActivity extends BaseActivity {
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
         return input;
+    }
+
+    @NonNull
+    private EditText addRootSettingsReadOnly(
+            @NonNull LinearLayout content,
+            @NonNull String label,
+            @NonNull String value
+    ) {
+        EditText input = addRootSettingsEdit(content, label, value);
+        input.setFocusable(false);
+        input.setFocusableInTouchMode(false);
+        input.setCursorVisible(false);
+        input.setKeyListener(null);
+        input.setTextIsSelectable(true);
+        input.setTextColor(Color.parseColor("#455A64"));
+        input.setBackgroundColor(Color.parseColor("#F5F7FA"));
+        return input;
+    }
+
+    @NonNull
+    private Spinner addSignalScenarioSpinner(
+            @NonNull LinearLayout content,
+            @NonNull SignalScenario selectedScenario
+    ) {
+        TextView labelView = new TextView(this);
+        labelView.setText("信号强度档位");
+        labelView.setTextColor(Color.parseColor("#455A64"));
+        labelView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        labelParams.topMargin = Math.round(dp(8f));
+        content.addView(labelView, labelParams);
+
+        List<String> labels = new ArrayList<>();
+        for (SignalScenario scenario : SignalScenario.values()) {
+            labels.add(scenario.getDisplayName());
+        }
+        Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_item,
+                labels
+        );
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(selectedScenario.ordinal(), false);
+        content.addView(spinner, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        return spinner;
+    }
+
+    @NonNull
+    private SignalScenario selectedSignalScenario(@NonNull Spinner spinner) {
+        int position = spinner.getSelectedItemPosition();
+        SignalScenario[] scenarios = SignalScenario.values();
+        if (position < 0 || position >= scenarios.length) {
+            return SignalScenario.STRONG;
+        }
+        return scenarios[position];
+    }
+
+    private void updateSignalScenarioPreview(
+            @NonNull SignalScenario scenario,
+            @Nullable EditText satellitesView,
+            @Nullable EditText hdopView,
+            @Nullable EditText wifiRssiView,
+            @Nullable EditText wifiJitterView,
+            @Nullable EditText cellDbmView,
+            @Nullable EditText cellJitterView
+    ) {
+        RootSignalStrengthProfile profile = scenario.getSignalStrengthProfile();
+        if (satellitesView != null) {
+            satellitesView.setText(String.valueOf(scenario.getLocationSatellites()));
+        }
+        if (hdopView != null) {
+            hdopView.setText(String.format(Locale.US, "%.2f", scenario.getLocationHdop()));
+        }
+        if (wifiRssiView != null) {
+            wifiRssiView.setText(profile.getWifiRssiDbm() + " dBm");
+        }
+        if (wifiJitterView != null) {
+            wifiJitterView.setText("±" + profile.getWifiJitterDbm() + " dBm");
+        }
+        if (cellDbmView != null) {
+            cellDbmView.setText(profile.getCellDbm() + " dBm");
+        }
+        if (cellJitterView != null) {
+            cellJitterView.setText("±" + profile.getCellJitterDbm() + " dBm");
+        }
     }
 
     @NonNull
@@ -4258,6 +4561,7 @@ public class RouteRunActivity extends BaseActivity {
             }
             return false;
         }
+        settings = settings.withSignalScenario(settings.resolveSignalScenario());
         settings = withLatestRouteDiagnosticLocationIfNeeded(config, settings);
         RootDiagnosticSessionController.StartResult result = rootDiagnosticSessionController.startSession(
                 config,

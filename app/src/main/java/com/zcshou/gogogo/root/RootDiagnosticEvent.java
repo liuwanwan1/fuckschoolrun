@@ -12,6 +12,7 @@ import java.util.Locale;
 public final class RootDiagnosticEvent {
     public static final String MODULE_FRAMEWORK = "framework";
     public static final String MODULE_REPORT = "report";
+    public static final String MODULE_PROCESS_LOG = "process_log";
     public static final String FRIDA_PREFIX = "[SchoolRunDiag]";
 
     private final long timestampMillis;
@@ -56,6 +57,30 @@ public final class RootDiagnosticEvent {
     }
 
     @Nullable
+    public static RootDiagnosticEvent fromJson(@Nullable String rawJson) {
+        if (rawJson == null || rawJson.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return fromJsonObject(new JSONObject(rawJson));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    @NonNull
+    public static RootDiagnosticEvent fromJsonObject(@NonNull JSONObject object) {
+        return new RootDiagnosticEvent(
+                object.optLong("timestampMillis", object.optLong("at", System.currentTimeMillis())),
+                object.optString("sessionId", ""),
+                object.optString("targetPackageName", object.optString("target", "")),
+                object.optString("moduleId", object.optString("module", MODULE_FRAMEWORK)),
+                object.optString("type", "event"),
+                object.optString("detail", object.toString())
+        );
+    }
+
+    @Nullable
     public static RootDiagnosticEvent fromFridaLine(
             @NonNull String fallbackSessionId,
             @NonNull String fallbackTargetPackageName,
@@ -68,13 +93,14 @@ public final class RootDiagnosticEvent {
         String rawJson = line.substring(prefixIndex + FRIDA_PREFIX.length()).trim();
         try {
             JSONObject object = new JSONObject(rawJson);
+            RootDiagnosticEvent event = fromJsonObject(object);
             return new RootDiagnosticEvent(
-                    object.optLong("at", System.currentTimeMillis()),
-                    object.optString("sessionId", fallbackSessionId),
-                    object.optString("target", fallbackTargetPackageName),
-                    object.optString("module", MODULE_FRAMEWORK),
-                    object.optString("type", "frida"),
-                    object.optString("detail", rawJson)
+                    event.getTimestampMillis(),
+                    event.getSessionId().isEmpty() ? fallbackSessionId : event.getSessionId(),
+                    event.getTargetPackageName().isEmpty() ? fallbackTargetPackageName : event.getTargetPackageName(),
+                    event.getModuleId().isEmpty() ? MODULE_FRAMEWORK : event.getModuleId(),
+                    event.getType().isEmpty() ? "frida" : event.getType(),
+                    event.getDetail().isEmpty() ? rawJson : event.getDetail()
             );
         } catch (Exception ignored) {
             return local(

@@ -36,12 +36,15 @@ import android.telephony.SignalStrength;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.util.Log;
 
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.PrintStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -69,6 +72,14 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Method> hookedSignalStrengthMethods =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<Method> hookedLogMethods =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<Method> hookedThrowableMethods =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<Method> hookedPrintStreamMethods =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<Method> hookedUncaughtExceptionMethods =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<String> loggedSensorErrors =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final ConcurrentHashMap<String, SensorInjectionTarget> sensorInjectionTargets =
@@ -89,6 +100,8 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     private static volatile boolean locationPulseScheduled;
     private static Handler sensorPulseHandler;
     private static Handler locationPulseHandler;
+    private static volatile Context diagnosticEventContext;
+    private static final ThreadLocal<Boolean> suppressProcessLogCapture = new ThreadLocal<>();
 
     static {
         EXCLUDED_PACKAGES.add(MODULE_PACKAGE);
@@ -116,6 +129,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         installDetectionBypassHooks(packageName);
         installServiceStreamHooks(packageName);
         installSensorHooks(packageName, lpparam.classLoader);
+        installProcessLogHooks(packageName);
         logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_loaded",
                 "LSPosed模块已在作用域进程加载：" + packageName);
     }
@@ -127,6 +141,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
                     Application application = (Application) param.thisObject;
+                    diagnosticEventContext = application.getApplicationContext();
                     BroadcastReceiver receiver = new BroadcastReceiver() {
                         @Override
                         public void onReceive(Context context, Intent intent) {
@@ -1580,6 +1595,269 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         }
     }
 
+    private void installProcessLogHooks(String packageName) {
+        hookAndroidLogMethods(packageName);
+        hookThrowablePrintStackTrace(packageName);
+        hookProcessPrintStreams(packageName);
+        hookUncaughtExceptionSurfaces(packageName);
+    }
+
+    private void hookAndroidLogMethods(String packageName) {
+        for (Method method : Log.class.getDeclaredMethods()) {
+            if (!Modifier.isStatic(method.getModifiers())
+                    || !isAndroidLogMethod(method.getName())
+                    || !hookedLogMethods.add(method)) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        captureProcessLog(packageName, "android_log", describeAndroidLogCall(method, param.args));
+                    }
+                });
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag android.util.Log hook skipped: "
+                        + method.getName() + " " + throwable.getMessage());
+            }
+        }
+        logEvent(packageName, RootDiagnosticEvent.MODULE_PROCESS_LOG, "hook_installed",
+                "android.util.Log");
+    }
+
+    private boolean isAndroidLogMethod(String methodName) {
+        return "v".equals(methodName)
+                || "d".equals(methodName)
+                || "i".equals(methodName)
+                || "w".equals(methodName)
+                || "e".equals(methodName)
+                || "wtf".equals(methodName)
+                || "println".equals(methodName);
+    }
+
+    private String describeAndroidLogCall(Method method, Object[] args) {
+        String methodName = method == null ? "log" : method.getName();
+        if ("println".equals(methodName)) {
+            return "println/" + priorityName(argAsInt(args, 0)) + "/" + argAsString(args, 1)
+                    + ": " + argAsString(args, 2);
+        }
+        String tag = argAsString(args, 0);
+        String message = argAsString(args, 1);
+        Throwable throwable = argAsThrowable(args);
+        String detail = methodName.toUpperCase() + "/" + tag + ": " + message;
+        if (throwable != null) {
+            detail += "\n" + stackTracePreview(throwable);
+        }
+        return detail;
+    }
+
+    private void hookThrowablePrintStackTrace(String packageName) {
+        for (Method method : Throwable.class.getDeclaredMethods()) {
+            if (!"printStackTrace".equals(method.getName()) || !hookedThrowableMethods.add(method)) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        if (param.thisObject instanceof Throwable) {
+                            captureProcessLog(
+                                    packageName,
+                                    "throwable_print_stack_trace",
+                                    stackTracePreview((Throwable) param.thisObject)
+                            );
+                        }
+                    }
+                });
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag Throwable.printStackTrace hook skipped: "
+                        + throwable.getMessage());
+            }
+        }
+        logEvent(packageName, RootDiagnosticEvent.MODULE_PROCESS_LOG, "hook_installed",
+                "Throwable.printStackTrace");
+    }
+
+    private void hookProcessPrintStreams(String packageName) {
+        for (Method method : PrintStream.class.getDeclaredMethods()) {
+            if (!isPrintStreamLogMethod(method) || !hookedPrintStreamMethods.add(method)) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        if (param.thisObject != System.err && param.thisObject != System.out) {
+                            return;
+                        }
+                        String stream = param.thisObject == System.err ? "stderr" : "stdout";
+                        captureProcessLog(packageName, stream, stream + ": " + argAsString(param.args, 0));
+                    }
+                });
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag PrintStream hook skipped: "
+                        + method.getName() + " " + throwable.getMessage());
+            }
+        }
+        logEvent(packageName, RootDiagnosticEvent.MODULE_PROCESS_LOG, "hook_installed",
+                "System.out/System.err PrintStream");
+    }
+
+    private void hookUncaughtExceptionSurfaces(String packageName) {
+        hookUncaughtExceptionMethods(packageName, Thread.class);
+        hookUncaughtExceptionMethods(packageName, ThreadGroup.class);
+    }
+
+    private void hookUncaughtExceptionMethods(String packageName, Class<?> targetClass) {
+        for (Method method : targetClass.getDeclaredMethods()) {
+            if (!isUncaughtExceptionMethod(method) || !hookedUncaughtExceptionMethods.add(method)) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        Throwable throwable = argAsThrowable(param.args);
+                        if (throwable == null) {
+                            return;
+                        }
+                        captureProcessLog(
+                                packageName,
+                                "uncaught_exception",
+                                targetClass.getName() + "." + method.getName() + "\n" + stackTracePreview(throwable)
+                        );
+                    }
+                });
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag uncaught exception hook skipped: "
+                        + targetClass.getName() + "." + method.getName() + " " + throwable.getMessage());
+            }
+        }
+    }
+
+    private boolean isUncaughtExceptionMethod(Method method) {
+        if (method == null
+                || (!"dispatchUncaughtException".equals(method.getName())
+                && !"uncaughtException".equals(method.getName()))) {
+            return false;
+        }
+        for (Class<?> parameter : method.getParameterTypes()) {
+            if (parameter == Throwable.class) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isPrintStreamLogMethod(Method method) {
+        if (method == null
+                || (!"print".equals(method.getName()) && !"println".equals(method.getName()))
+                || method.getParameterTypes().length != 1) {
+            return false;
+        }
+        Class<?> parameter = method.getParameterTypes()[0];
+        return parameter == String.class
+                || parameter == Object.class
+                || parameter == Throwable.class
+                || parameter == char[].class
+                || parameter == char.class
+                || parameter == boolean.class
+                || parameter == int.class
+                || parameter == long.class
+                || parameter == float.class
+                || parameter == double.class;
+    }
+
+    private void captureProcessLog(String packageName, String type, String detail) {
+        if (!active || Boolean.TRUE.equals(suppressProcessLogCapture.get())) {
+            return;
+        }
+        suppressProcessLogCapture.set(true);
+        try {
+            logEvent(packageName, RootDiagnosticEvent.MODULE_PROCESS_LOG, type, detail);
+        } finally {
+            suppressProcessLogCapture.set(false);
+        }
+    }
+
+    private String stackTracePreview(Throwable throwable) {
+        if (throwable == null) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder(2048);
+        appendThrowable(builder, throwable, 0);
+        return builder.toString();
+    }
+
+    private void appendThrowable(StringBuilder builder, Throwable throwable, int depth) {
+        if (throwable == null || depth > 3) {
+            return;
+        }
+        if (builder.length() > 0) {
+            builder.append("\nCaused by: ");
+        }
+        builder.append(throwable.getClass().getName()).append(": ")
+                .append(safeString(throwable.getMessage()));
+        StackTraceElement[] trace = throwable.getStackTrace();
+        int limit = Math.min(trace.length, 24);
+        for (int index = 0; index < limit; index++) {
+            builder.append("\n    at ").append(trace[index]);
+        }
+        if (trace.length > limit) {
+            builder.append("\n    ... ").append(trace.length - limit).append(" more");
+        }
+        appendThrowable(builder, throwable.getCause(), depth + 1);
+    }
+
+    private String priorityName(int priority) {
+        switch (priority) {
+            case Log.VERBOSE:
+                return "VERBOSE";
+            case Log.DEBUG:
+                return "DEBUG";
+            case Log.INFO:
+                return "INFO";
+            case Log.WARN:
+                return "WARN";
+            case Log.ERROR:
+                return "ERROR";
+            case Log.ASSERT:
+                return "ASSERT";
+            default:
+                return String.valueOf(priority);
+        }
+    }
+
+    private int argAsInt(Object[] args, int index) {
+        if (args != null && args.length > index && args[index] instanceof Integer) {
+            return (Integer) args[index];
+        }
+        return 0;
+    }
+
+    private String argAsString(Object[] args, int index) {
+        if (args == null || args.length <= index || args[index] == null) {
+            return "";
+        }
+        Object value = args[index];
+        if (value instanceof char[]) {
+            return new String((char[]) value);
+        }
+        return String.valueOf(value);
+    }
+
+    private Throwable argAsThrowable(Object[] args) {
+        if (args == null) {
+            return null;
+        }
+        for (Object arg : args) {
+            if (arg instanceof Throwable) {
+                return (Throwable) arg;
+            }
+        }
+        return null;
+    }
+
     private boolean isModuleActive(RootDiagnosticModule module) {
         if (!active || !activeModules.contains(module)) {
             return false;
@@ -1614,14 +1892,46 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     private void logEvent(String packageName, String moduleId, String type, String detail) {
         try {
             JSONObject payload = new JSONObject();
+            long now = System.currentTimeMillis();
+            payload.put("at", now);
+            payload.put("timestampMillis", now);
             payload.put("sessionId", activeSessionId);
+            payload.put("target", packageName);
             payload.put("targetPackageName", packageName);
+            payload.put("moduleId", moduleId);
             payload.put("module", moduleId);
             payload.put("type", type);
             payload.put("detail", detail);
-            XposedBridge.log(RootDiagnosticEvent.FRIDA_PREFIX + payload);
+            Boolean previousSuppress = suppressProcessLogCapture.get();
+            suppressProcessLogCapture.set(true);
+            try {
+                XposedBridge.log(RootDiagnosticEvent.FRIDA_PREFIX + payload);
+                broadcastDiagnosticEvent(payload.toString());
+            } finally {
+                if (Boolean.TRUE.equals(previousSuppress)) {
+                    suppressProcessLogCapture.set(true);
+                } else {
+                    suppressProcessLogCapture.remove();
+                }
+            }
         } catch (Throwable throwable) {
             XposedBridge.log("SchoolRunDiag event log failed: " + throwable.getMessage());
+        }
+    }
+
+    private void broadcastDiagnosticEvent(String eventJson) {
+        Context context = diagnosticEventContext;
+        if (context == null) {
+            return;
+        }
+        try {
+            Intent intent = new Intent(LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_EVENT);
+            intent.setPackage(MODULE_PACKAGE);
+            intent.putExtra(LsposedDiagnosticBridge.EXTRA_EVENT_JSON, eventJson);
+            intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+            context.sendBroadcast(intent);
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag event broadcast failed: " + throwable.getMessage());
         }
     }
 

@@ -10,6 +10,10 @@ import java.util.Locale;
 public final class RootDiagnosticSettings {
     public static final double MIN_SENSOR_CADENCE = 140d;
     public static final double MAX_SENSOR_CADENCE = 220d;
+    private static final String DEFAULT_WIFI_BSSID = "02:00:00:7a:11:29";
+    private static final String DEFAULT_WIFI_SSID = "Internal-Test-WiFi";
+    private static final String DEFAULT_NETWORK_OPERATOR = "46000";
+    private static final String DEFAULT_NETWORK_COUNTRY = "cn";
 
     private static final String KEY_LOCATION_LATITUDE = "locationLatitude";
     private static final String KEY_LOCATION_LONGITUDE = "locationLongitude";
@@ -93,10 +97,10 @@ public final class RootDiagnosticSettings {
         this.locationSatellites = clamp(locationSatellites, 1, 32);
         this.locationHdop = clamp(locationHdop, 0.3d, 9.9d);
         this.locationSimulationMode = locationSimulationMode;
-        this.wifiBssid = sanitize(wifiBssid, "02:00:00:7a:11:29");
-        this.wifiSsid = sanitize(wifiSsid, "Internal-Test-WiFi");
-        this.networkOperator = sanitize(networkOperator, "46000");
-        this.networkCountry = sanitize(networkCountry, "cn");
+        this.wifiBssid = sanitize(wifiBssid, DEFAULT_WIFI_BSSID);
+        this.wifiSsid = sanitize(wifiSsid, DEFAULT_WIFI_SSID);
+        this.networkOperator = sanitize(networkOperator, DEFAULT_NETWORK_OPERATOR);
+        this.networkCountry = sanitize(networkCountry, DEFAULT_NETWORK_COUNTRY);
         this.signalStrengthProfile = signalStrengthProfile;
         this.bypassRootArtifacts = bypassRootArtifacts;
         this.bypassDebugger = bypassDebugger;
@@ -124,10 +128,10 @@ public final class RootDiagnosticSettings {
                 9,
                 0.8d,
                 LocationSimulationMode.ROOT_GLOBAL_TRAVELING,
-                "02:00:00:7a:11:29",
-                "Internal-Test-WiFi",
-                "46000",
-                "cn",
+                DEFAULT_WIFI_BSSID,
+                DEFAULT_WIFI_SSID,
+                DEFAULT_NETWORK_OPERATOR,
+                DEFAULT_NETWORK_COUNTRY,
                 RootSignalStrengthProfile.defaults(),
                 true,
                 true,
@@ -225,12 +229,14 @@ public final class RootDiagnosticSettings {
     public String summarize(@NonNull RootDiagnosticModule module) {
         switch (module) {
             case LOCATION_NMEA:
-                return String.format(Locale.getDefault(), "%s, lat=%.6f, lon=%.6f, speed=%.1fm/s, alt=%.1fm, bearing=%.1f, satellites=%d, hdop=%.1f",
+                return String.format(Locale.getDefault(), "%s, %s, lat=%.6f, lon=%.6f, speed=%.1fm/s, alt=%.1fm, bearing=%.1f, satellites=%d, hdop=%.1f",
                         locationSimulationMode.getDisplayName(),
+                        resolveSignalScenario().getDisplayName(),
                         locationLatitude, locationLongitude, locationSpeedMetersPerSecond,
                         locationAltitudeMeters, locationBearingDegrees, locationSatellites, locationHdop);
             case RADIO_WIFI_SIGNAL:
-                return "ssid=" + wifiSsid
+                return resolveSignalScenario().getDisplayName()
+                        + ", autoIdentity, ssid=" + wifiSsid
                         + ", bssid=" + wifiBssid
                         + ", operator=" + networkOperator
                         + ", country=" + networkCountry
@@ -325,6 +331,25 @@ public final class RootDiagnosticSettings {
 
     public int getCellJitterDbm() {
         return signalStrengthProfile.getCellJitterDbm();
+    }
+
+    @NonNull
+    public SignalScenario resolveSignalScenario() {
+        SignalScenario closest = SignalScenario.STRONG;
+        double closestScore = Double.MAX_VALUE;
+        for (SignalScenario scenario : SignalScenario.values()) {
+            double score = Math.abs(locationSatellites - scenario.getLocationSatellites()) * 4d
+                    + Math.abs(locationHdop - scenario.getLocationHdop()) * 3d
+                    + Math.abs(signalStrengthProfile.getWifiRssiDbm() - scenario.getSignalStrengthProfile().getWifiRssiDbm())
+                    + Math.abs(signalStrengthProfile.getWifiJitterDbm() - scenario.getSignalStrengthProfile().getWifiJitterDbm())
+                    + Math.abs(signalStrengthProfile.getCellDbm() - scenario.getSignalStrengthProfile().getCellDbm())
+                    + Math.abs(signalStrengthProfile.getCellJitterDbm() - scenario.getSignalStrengthProfile().getCellJitterDbm());
+            if (score < closestScore) {
+                closestScore = score;
+                closest = scenario;
+            }
+        }
+        return closest;
     }
 
     public boolean isBypassRootArtifacts() {
@@ -499,6 +524,47 @@ public final class RootDiagnosticSettings {
                 operator,
                 country,
                 signalStrengthProfile,
+                bypassRootArtifacts,
+                bypassDebugger,
+                bypassMockLocation,
+                targetHookMaxMethods,
+                serviceClipboardNull,
+                serviceBluetoothDisabled,
+                serviceNfcDisabled,
+                sensorMinCadence,
+                sensorMaxCadence,
+                sensorWaveAmplitude,
+                sensorMotionProfile
+        );
+    }
+
+    @NonNull
+    public RootDiagnosticSettings withAutomaticSignalIdentity() {
+        return withSignal(
+                DEFAULT_WIFI_BSSID,
+                DEFAULT_WIFI_SSID,
+                DEFAULT_NETWORK_OPERATOR,
+                DEFAULT_NETWORK_COUNTRY,
+                signalStrengthProfile
+        );
+    }
+
+    @NonNull
+    public RootDiagnosticSettings withSignalScenario(@NonNull SignalScenario scenario) {
+        return new RootDiagnosticSettings(
+                locationLatitude,
+                locationLongitude,
+                locationSpeedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
+                scenario.getLocationSatellites(),
+                scenario.getLocationHdop(),
+                locationSimulationMode,
+                DEFAULT_WIFI_BSSID,
+                DEFAULT_WIFI_SSID,
+                DEFAULT_NETWORK_OPERATOR,
+                DEFAULT_NETWORK_COUNTRY,
+                scenario.getSignalStrengthProfile(),
                 bypassRootArtifacts,
                 bypassDebugger,
                 bypassMockLocation,
@@ -715,6 +781,85 @@ public final class RootDiagnosticSettings {
                 }
             }
             return ROOT_GLOBAL_TRAVELING;
+        }
+    }
+
+    public enum SignalScenario {
+        WEAK(
+                "weak",
+                "弱信号",
+                3,
+                5.5d,
+                new RootSignalStrengthProfile(-90, 6, -116, 7)
+        ),
+        MEDIUM(
+                "medium",
+                "中信号",
+                6,
+                2.2d,
+                new RootSignalStrengthProfile(-72, 4, -98, 5)
+        ),
+        STRONG(
+                "strong",
+                "强信号",
+                9,
+                0.8d,
+                RootSignalStrengthProfile.defaults()
+        );
+
+        private final String value;
+        private final String displayName;
+        private final int locationSatellites;
+        private final double locationHdop;
+        private final RootSignalStrengthProfile signalStrengthProfile;
+
+        SignalScenario(
+                @NonNull String value,
+                @NonNull String displayName,
+                int locationSatellites,
+                double locationHdop,
+                @NonNull RootSignalStrengthProfile signalStrengthProfile
+        ) {
+            this.value = value;
+            this.displayName = displayName;
+            this.locationSatellites = locationSatellites;
+            this.locationHdop = locationHdop;
+            this.signalStrengthProfile = signalStrengthProfile;
+        }
+
+        @NonNull
+        public String getValue() {
+            return value;
+        }
+
+        @NonNull
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        public int getLocationSatellites() {
+            return locationSatellites;
+        }
+
+        public double getLocationHdop() {
+            return locationHdop;
+        }
+
+        @NonNull
+        public RootSignalStrengthProfile getSignalStrengthProfile() {
+            return signalStrengthProfile;
+        }
+
+        @NonNull
+        public static SignalScenario fromValue(@Nullable String rawValue) {
+            if (rawValue != null) {
+                for (SignalScenario scenario : values()) {
+                    if (scenario.value.equals(rawValue)) {
+                        return scenario;
+                    }
+                }
+            }
+            return STRONG;
         }
     }
 }
