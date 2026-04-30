@@ -245,6 +245,8 @@ public class RouteRunActivity extends BaseActivity {
     private View simulationSettingsFormView;
     private boolean simulationSettingsSubPageVisible;
     private int simulationSettingsHomeScrollY;
+    private boolean simulationSettingsNonRootCollapsed;
+    private boolean simulationSettingsRootCollapsed;
     private RootSettingsSaveAction simulationSettingsActiveSaveAction;
     private TextView settingsReminderToneView;
     private TextView settingsNonRootTabView;
@@ -2774,7 +2776,16 @@ public class RouteRunActivity extends BaseActivity {
         ));
 
         List<SimulationSettingsHomeRow> rows = new ArrayList<>();
-        TextView nonRootCategory = addSimulationSettingsCategory(page, getString(R.string.route_settings_tab_non_root));
+        TextView nonRootCategory = addSimulationSettingsCategory(
+                page,
+                getString(R.string.route_settings_tab_non_root),
+                simulationSettingsNonRootCollapsed,
+                v -> {
+                    rememberSimulationSettingsHomeScrollPosition();
+                    simulationSettingsNonRootCollapsed = !simulationSettingsNonRootCollapsed;
+                    showSimulationSettingsHomePage();
+                }
+        );
         addSimulationSettingsEntry(page, rows, nonRootCategory,
                 "联动比例",
                 prefsStore.getRouteLinkRatioNumerator() + " : " + safeText(speedInput),
@@ -2831,8 +2842,17 @@ public class RouteRunActivity extends BaseActivity {
                 v -> showSimulationSettingsFormPage("共享设置", false, R.id.section_settings_share));
 
         if (isInternalRootTestingEnabled()) {
-            TextView rootCategory = addSimulationSettingsCategory(page, getString(R.string.route_settings_tab_root));
-            addRootSettingsDropdown(page);
+            TextView rootCategory = addSimulationSettingsCategory(
+                    page,
+                    getString(R.string.route_settings_tab_root),
+                    simulationSettingsRootCollapsed,
+                    v -> {
+                        rememberSimulationSettingsHomeScrollPosition();
+                        simulationSettingsRootCollapsed = !simulationSettingsRootCollapsed;
+                        showSimulationSettingsHomePage();
+                    }
+            );
+            addRootSettingsDropdown(page, rows, rootCategory);
             addSimulationSettingsEntry(page, rows, rootCategory,
                     "Root授权",
                     rootModeHomeSummary(),
@@ -2886,6 +2906,7 @@ public class RouteRunActivity extends BaseActivity {
                 filterSimulationSettingsHomeRows(rows, editable == null ? "" : editable.toString());
             }
         });
+        filterSimulationSettingsHomeRows(rows, searchInput.getText() == null ? "" : searchInput.getText().toString());
         setSimulationSettingsContent(scrollView);
         scrollView.post(() -> scrollView.scrollTo(0, Math.max(0, simulationSettingsHomeScrollY)));
     }
@@ -2921,11 +2942,35 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private TextView addSimulationSettingsCategory(@NonNull LinearLayout page, @NonNull String title) {
+        return addSimulationSettingsCategory(page, title, false, null);
+    }
+
+    private TextView addSimulationSettingsCategory(
+            @NonNull LinearLayout page,
+            @NonNull String title,
+            boolean collapsed,
+            @Nullable View.OnClickListener listener
+    ) {
         TextView category = new TextView(this);
-        category.setText(title);
+        category.setText(listener == null ? title : (collapsed ? "+ " : "- ") + title);
         category.setTextColor(Color.parseColor("#607085"));
         category.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
         category.setGravity(Gravity.CENTER_VERTICAL);
+        category.setSelected(collapsed);
+        if (listener != null) {
+            category.setOnClickListener(listener);
+            category.setClickable(true);
+            category.setPadding(
+                    Math.round(dp(8f)),
+                    Math.round(dp(8f)),
+                    Math.round(dp(8f)),
+                    Math.round(dp(8f))
+            );
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(Color.parseColor("#EEF3F8"));
+            background.setCornerRadius(dp(8f));
+            category.setBackground(background);
+        }
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -3002,7 +3047,7 @@ public class RouteRunActivity extends BaseActivity {
         );
         rowParams.topMargin = Math.round(dp(8f));
         page.addView(row, rowParams);
-        rows.add(new SimulationSettingsHomeRow(row, category, title + " " + summary + " " + keywords));
+        rows.add(new SimulationSettingsHomeRow(row, category, title + " " + summary + " " + keywords, category.isSelected()));
     }
 
     private void addRootModuleHomeEntry(
@@ -3023,7 +3068,11 @@ public class RouteRunActivity extends BaseActivity {
                 v -> showRootModuleSettingsDialog(module));
     }
 
-    private void addRootSettingsDropdown(@NonNull LinearLayout page) {
+    private void addRootSettingsDropdown(
+            @NonNull LinearLayout page,
+            @NonNull List<SimulationSettingsHomeRow> rows,
+            @NonNull View category
+    ) {
         List<String> labels = new ArrayList<>();
         List<View.OnClickListener> actions = new ArrayList<>();
         labels.add("选择Root设置项");
@@ -3080,6 +3129,12 @@ public class RouteRunActivity extends BaseActivity {
         );
         params.topMargin = Math.round(dp(8f));
         page.addView(spinner, params);
+        rows.add(new SimulationSettingsHomeRow(
+                spinner,
+                category,
+                "Root settings module dropdown LSPosed location sensor signal log",
+                category.isSelected()
+        ));
     }
 
     private void addRootDropdownModule(
@@ -3225,7 +3280,8 @@ public class RouteRunActivity extends BaseActivity {
         for (SimulationSettingsHomeRow row : rows) {
             boolean matched = TextUtils.isEmpty(normalized)
                     || row.keywords.toLowerCase(Locale.getDefault()).contains(normalized);
-            row.row.setVisibility(matched ? View.VISIBLE : View.GONE);
+            boolean hiddenByCollapse = TextUtils.isEmpty(normalized) && row.collapsed;
+            row.row.setVisibility(matched && !hiddenByCollapse ? View.VISIBLE : View.GONE);
             if (matched) {
                 row.category.setVisibility(View.VISIBLE);
             }
@@ -7185,15 +7241,26 @@ public class RouteRunActivity extends BaseActivity {
         private final View row;
         private final View category;
         private final String keywords;
+        private final boolean collapsed;
 
         private SimulationSettingsHomeRow(
                 @NonNull View row,
                 @NonNull View category,
                 @NonNull String keywords
         ) {
+            this(row, category, keywords, false);
+        }
+
+        private SimulationSettingsHomeRow(
+                @NonNull View row,
+                @NonNull View category,
+                @NonNull String keywords,
+                boolean collapsed
+        ) {
             this.row = row;
             this.category = category;
             this.keywords = keywords;
+            this.collapsed = collapsed;
         }
     }
 
