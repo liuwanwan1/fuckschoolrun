@@ -20,6 +20,11 @@ public final class SharedSimulationConfigEntry {
     private final double linkRatioNumerator;
     private final double stepsPerMeter;
     private final String authorName;
+    private final boolean uploaderTester;
+    private final boolean uploaderRootDevice;
+    private final boolean rootConfigIncluded;
+    private final String rootFeatureConfigJson;
+    private final String rootDiagnosticSettingsJson;
     private final long createdAt;
     private final long updatedAt;
 
@@ -43,6 +48,11 @@ public final class SharedSimulationConfigEntry {
             double linkRatioNumerator,
             double stepsPerMeter,
             String authorName,
+            boolean uploaderTester,
+            boolean uploaderRootDevice,
+            boolean rootConfigIncluded,
+            String rootFeatureConfigJson,
+            String rootDiagnosticSettingsJson,
             long createdAt,
             long updatedAt
     ) {
@@ -65,6 +75,11 @@ public final class SharedSimulationConfigEntry {
         this.linkRatioNumerator = linkRatioNumerator;
         this.stepsPerMeter = stepsPerMeter;
         this.authorName = authorName == null ? "" : authorName.trim();
+        this.uploaderTester = uploaderTester;
+        this.uploaderRootDevice = uploaderRootDevice;
+        this.rootConfigIncluded = rootConfigIncluded;
+        this.rootFeatureConfigJson = rootFeatureConfigJson == null ? "" : rootFeatureConfigJson.trim();
+        this.rootDiagnosticSettingsJson = rootDiagnosticSettingsJson == null ? "" : rootDiagnosticSettingsJson.trim();
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -143,6 +158,26 @@ public final class SharedSimulationConfigEntry {
 
     public String getAuthorName() {
         return authorName;
+    }
+
+    public boolean isUploaderTester() {
+        return uploaderTester;
+    }
+
+    public boolean isUploaderRootDevice() {
+        return uploaderRootDevice;
+    }
+
+    public boolean isRootConfigIncluded() {
+        return rootConfigIncluded && !rootFeatureConfigJson.isEmpty() && !rootDiagnosticSettingsJson.isEmpty();
+    }
+
+    public String getRootFeatureConfigJson() {
+        return rootFeatureConfigJson;
+    }
+
+    public String getRootDiagnosticSettingsJson() {
+        return rootDiagnosticSettingsJson;
     }
 
     public long getCreatedAt() {

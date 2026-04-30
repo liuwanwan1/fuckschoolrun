@@ -9,6 +9,8 @@ import com.acooldog.toolbox.nfc.domain.NfcPayload;
 import com.acooldog.toolbox.route.domain.model.RouteSimulationConfig;
 import com.acooldog.toolbox.route.data.RoutePointJsonCodec;
 import com.acooldog.toolbox.route.domain.model.RoutePoint;
+import com.acooldog.toolbox.root.RootDiagnosticSettings;
+import com.acooldog.toolbox.root.RootFeatureConfig;
 import com.acooldog.toolbox.share.domain.model.AppClientConfig;
 import com.acooldog.toolbox.share.domain.model.InternalAccountProfile;
 import com.acooldog.toolbox.share.domain.model.InternalLoginResult;
@@ -296,6 +298,18 @@ public final class ShareApiClient {
             RouteSimulationConfig config,
             String authorToken
     ) throws IOException {
+        return uploadSharedSimulationConfig(name, config, authorToken, null, null, false, false);
+    }
+
+    public SharedSimulationConfigEntry uploadSharedSimulationConfig(
+            String name,
+            RouteSimulationConfig config,
+            String authorToken,
+            RootFeatureConfig rootFeatureConfig,
+            RootDiagnosticSettings rootDiagnosticSettings,
+            boolean uploaderTester,
+            boolean uploaderRootDevice
+    ) throws IOException {
         JSONObject bodyJson = new JSONObject();
         try {
             bodyJson.put("name", name);
@@ -315,6 +329,17 @@ public final class ShareApiClient {
             bodyJson.put("altitudeVariationProbability", config.getAltitudeVariationProbability());
             bodyJson.put("linkRatioNumerator", config.getLinkRatioNumerator());
             bodyJson.put("stepsPerMeter", config.getStepsPerMeter());
+            bodyJson.put("uploaderTester", uploaderTester);
+            bodyJson.put("uploaderRootDevice", uploaderRootDevice);
+            boolean includeRootConfig = uploaderTester
+                    && uploaderRootDevice
+                    && rootFeatureConfig != null
+                    && rootDiagnosticSettings != null;
+            bodyJson.put("rootConfigIncluded", includeRootConfig);
+            if (includeRootConfig) {
+                bodyJson.put("rootFeatureConfigJson", rootFeatureConfig.toJson());
+                bodyJson.put("rootDiagnosticSettingsJson", rootDiagnosticSettings.toJson());
+            }
         } catch (JSONException exception) {
             throw new IOException("Unable to encode simulation config request", exception);
         }
@@ -532,7 +557,8 @@ public final class ShareApiClient {
                 optString(jsonObject, "noticeMessage", "message"),
                 optString(jsonObject, "qqGroupNumber", "groupNumber", "qqGroup"),
                 optString(jsonObject, "bilibiliText", "bilibiliLabel"),
-                optString(jsonObject, "bilibiliUrl", "bilibiliLink")
+                optString(jsonObject, "bilibiliUrl", "bilibiliLink"),
+                optStringList(jsonObject, "rootAccessAllowedTesterTypes", "rootAllowedTesterTypes")
         );
     }
 
@@ -610,6 +636,11 @@ public final class ShareApiClient {
                 optDouble(jsonObject, "linkRatioNumerator"),
                 optDouble(jsonObject, "stepsPerMeter"),
                 optString(jsonObject, "authorName"),
+                optBoolean(jsonObject, "uploaderTester", "uploadedByTester", "isTesterUpload"),
+                optBoolean(jsonObject, "uploaderRootDevice", "uploadedFromRootDevice", "isRootDeviceUpload"),
+                optBoolean(jsonObject, "rootConfigIncluded", "hasRootConfig"),
+                optString(jsonObject, "rootFeatureConfigJson"),
+                optString(jsonObject, "rootDiagnosticSettingsJson"),
                 optLong(jsonObject, "createdAt", "createTime"),
                 optLong(jsonObject, "updatedAt", "updateTime")
         );
@@ -625,6 +656,38 @@ public final class ShareApiClient {
             }
         }
         return "";
+    }
+
+    private List<String> optStringList(@NonNull JSONObject jsonObject, String... keys) {
+        for (String key : keys) {
+            if (!jsonObject.has(key)) {
+                continue;
+            }
+            JSONArray array = jsonObject.optJSONArray(key);
+            List<String> values = new ArrayList<>();
+            if (array != null) {
+                for (int index = 0; index < array.length(); index++) {
+                    String value = array.optString(index, "").trim();
+                    if (!TextUtils.isEmpty(value)) {
+                        values.add(value);
+                    }
+                }
+                return values;
+            }
+            String raw = jsonObject.optString(key, "").trim();
+            if (TextUtils.isEmpty(raw)) {
+                return values;
+            }
+            String[] parts = raw.split(",");
+            for (String part : parts) {
+                String value = part.trim();
+                if (!TextUtils.isEmpty(value)) {
+                    values.add(value);
+                }
+            }
+            return values;
+        }
+        return null;
     }
 
     private boolean optBoolean(@NonNull JSONObject jsonObject, String... keys) {

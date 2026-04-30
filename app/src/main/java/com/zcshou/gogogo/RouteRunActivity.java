@@ -121,6 +121,8 @@ import com.acooldog.toolbox.root.RootSensorMotionProfile;
 import com.acooldog.toolbox.root.RootSignalStrengthProfile;
 import com.acooldog.toolbox.root.RootShellProbeResult;
 import com.acooldog.toolbox.root.RootTestAuditLogger;
+import com.acooldog.toolbox.share.data.ShareApiClient;
+import com.acooldog.toolbox.share.domain.model.AppClientConfig;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
 import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
@@ -211,6 +213,7 @@ public class RouteRunActivity extends BaseActivity {
     private RootFeatureRuntimeReport latestRootFeatureRuntimeReport;
     private RootDiagnosticSettings latestRootDiagnosticSettings;
     private RootDiagnosticSessionReport latestRootDiagnosticReport;
+    private volatile AppClientConfig latestAppClientConfig = AppClientConfig.defaults();
     private boolean rootTestSessionConfirmed;
     private boolean rootShellAuthorized;
     private boolean suppressRootFeatureSwitchCallbacks;
@@ -238,6 +241,7 @@ public class RouteRunActivity extends BaseActivity {
     private Button simulationSettingsPrimaryButton;
     private View simulationSettingsFormView;
     private boolean simulationSettingsSubPageVisible;
+    private int simulationSettingsHomeScrollY;
     private RootSettingsSaveAction simulationSettingsActiveSaveAction;
     private TextView settingsReminderToneView;
     private TextView settingsNonRootTabView;
@@ -2877,6 +2881,18 @@ public class RouteRunActivity extends BaseActivity {
             }
         });
         setSimulationSettingsContent(scrollView);
+        scrollView.post(() -> scrollView.scrollTo(0, Math.max(0, simulationSettingsHomeScrollY)));
+    }
+
+    private void rememberSimulationSettingsHomeScrollPosition() {
+        if (simulationSettingsSubPageVisible || simulationSettingsContentFrame == null
+                || simulationSettingsContentFrame.getChildCount() == 0) {
+            return;
+        }
+        View child = simulationSettingsContentFrame.getChildAt(0);
+        if (child instanceof ScrollView) {
+            simulationSettingsHomeScrollY = ((ScrollView) child).getScrollY();
+        }
     }
 
     @NonNull
@@ -3086,6 +3102,7 @@ public class RouteRunActivity extends BaseActivity {
             showRootModeGateToast();
             return;
         }
+        rememberSimulationSettingsHomeScrollPosition();
         if (simulationSettingsOverlay == null) {
             showSimulationSettingsDialog();
         }
@@ -3217,6 +3234,7 @@ public class RouteRunActivity extends BaseActivity {
         if (simulationSettingsFormView == null || simulationSettingsContentFrame == null) {
             return;
         }
+        rememberSimulationSettingsHomeScrollPosition();
         simulationSettingsSubPageVisible = true;
         simulationSettingsActiveSaveAction = null;
         if (simulationSettingsTitleView != null) {
@@ -3341,6 +3359,7 @@ public class RouteRunActivity extends BaseActivity {
         simulationSettingsPrimaryButton = null;
         simulationSettingsFormView = null;
         simulationSettingsSubPageVisible = false;
+        simulationSettingsHomeScrollY = 0;
         simulationSettingsActiveSaveAction = null;
         clearSimulationSettingsViewReferences();
     }
@@ -3961,6 +3980,7 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull LinearLayout content,
             @NonNull RootSettingsSaveAction saveAction
     ) {
+        rememberSimulationSettingsHomeScrollPosition();
         if (simulationSettingsOverlay == null) {
             showSimulationSettingsDialog();
         }
@@ -4387,6 +4407,7 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull LinearLayout content,
             @NonNull RootSettingsSaveAction saveAction
     ) {
+        rememberSimulationSettingsHomeScrollPosition();
         if (simulationSettingsOverlay == null) {
             showSimulationSettingsDialog();
         }
@@ -4846,7 +4867,17 @@ public class RouteRunActivity extends BaseActivity {
 
     private boolean isInternalRootTestingEnabled() {
         return BuildConfig.INTERNAL_ROOT_TESTING_ENABLED
-                && new InternalAuthStore(getApplicationContext()).canUseRootDiagnostics();
+                && canCurrentIdentityUseRootDiagnostics(getEffectiveAppClientConfig());
+    }
+
+    private AppClientConfig getEffectiveAppClientConfig() {
+        return latestAppClientConfig == null ? AppClientConfig.defaults() : latestAppClientConfig;
+    }
+
+    private boolean canCurrentIdentityUseRootDiagnostics(@NonNull AppClientConfig config) {
+        InternalAuthStore authStore = new InternalAuthStore(getApplicationContext());
+        String token = authStore.getToken();
+        return config.canUseRootDiagnostics(authStore.getProfile(), !TextUtils.isEmpty(token));
     }
 
     private void refreshInternalAccountProfileForRootGate() {
@@ -4855,24 +4886,34 @@ public class RouteRunActivity extends BaseActivity {
         }
         InternalAuthStore authStore = new InternalAuthStore(getApplicationContext());
         String token = authStore.getToken();
-        if (TextUtils.isEmpty(token)) {
-            renderRootAccessGate();
-            return;
-        }
         ioExecutor.execute(() -> {
+            AppClientConfig refreshedConfig = null;
             try {
-                InternalAccountProfile profile = ShareModule.from(getApplicationContext())
+                refreshedConfig = ShareModule.from(getApplicationContext())
                         .shareApiClient()
-                        .getInternalAccountProfile(token);
-                authStore.saveProfile(profile);
-                runOnUiThread(() -> {
-                    if (renderRootAccessGate()) {
-                        renderRootEnvironmentReport();
-                    }
-                });
+                        .getAppClientConfig();
             } catch (Exception ignored) {
-                runOnUiThread(this::renderRootAccessGate);
+                // Keep the last known/default policy if the config endpoint is temporarily unavailable.
             }
+            if (!TextUtils.isEmpty(token)) {
+                try {
+                    InternalAccountProfile profile = ShareModule.from(getApplicationContext())
+                            .shareApiClient()
+                            .getInternalAccountProfile(token);
+                    authStore.saveProfile(profile);
+                } catch (Exception ignored) {
+                    // Auth state is rendered from the cached local profile when refresh fails.
+                }
+            }
+            AppClientConfig finalRefreshedConfig = refreshedConfig;
+            runOnUiThread(() -> {
+                if (finalRefreshedConfig != null) {
+                    latestAppClientConfig = finalRefreshedConfig;
+                }
+                if (renderRootAccessGate()) {
+                    renderRootEnvironmentReport();
+                }
+            });
         });
     }
 
@@ -5339,12 +5380,37 @@ public class RouteRunActivity extends BaseActivity {
         }
         try {
             RouteSimulationConfig config = buildSimulationConfigForDialogInputs();
-            String token = new InternalAuthStore(getApplicationContext()).getToken();
+            InternalAuthStore authStore = new InternalAuthStore(getApplicationContext());
+            String token = authStore.getToken();
+            boolean uploaderRootDevice = isRootDetectedForRootMode();
+            RootFeatureConfig currentRootFeatureConfig = latestRootFeatureConfig == null
+                    ? RootFeatureConfig.defaults()
+                    : latestRootFeatureConfig;
+            RootDiagnosticSettings currentRootSettings = latestRootDiagnosticSettings == null
+                    ? RootDiagnosticSettings.defaults()
+                    : latestRootDiagnosticSettings;
             ioExecutor.execute(() -> {
                 try {
-                    ShareModule.from(getApplicationContext())
-                            .shareApiClient()
-                            .uploadSharedSimulationConfig(name, config, token);
+                    ShareApiClient client = ShareModule.from(getApplicationContext()).shareApiClient();
+                    AppClientConfig operationConfig = null;
+                    try {
+                        operationConfig = client.getAppClientConfig();
+                        latestAppClientConfig = operationConfig;
+                    } catch (Exception ignored) {
+                        // Sensitive root config upload requires fresh backend policy.
+                    }
+                    boolean uploaderTester = operationConfig != null
+                            && canCurrentIdentityUseRootDiagnostics(operationConfig);
+                    boolean includeRootConfig = uploaderTester && uploaderRootDevice;
+                    client.uploadSharedSimulationConfig(
+                            name,
+                            config,
+                            token,
+                            includeRootConfig ? currentRootFeatureConfig : null,
+                            includeRootConfig ? currentRootSettings : null,
+                            uploaderTester,
+                            uploaderRootDevice
+                    );
                     runOnUiThread(() -> GoUtils.DisplayToast(this, getString(R.string.route_settings_upload_success)));
                 } catch (Exception exception) {
                     runOnUiThread(() -> GoUtils.DisplayToast(
@@ -5433,9 +5499,13 @@ public class RouteRunActivity extends BaseActivity {
         GoUtils.DisplayToast(this, getString(R.string.route_settings_download_loading));
         ioExecutor.execute(() -> {
             try {
-                List<SharedSimulationConfigEntry> items = ShareModule.from(getApplicationContext())
-                        .shareApiClient()
-                        .getSharedSimulationConfigs("");
+                ShareApiClient client = ShareModule.from(getApplicationContext()).shareApiClient();
+                try {
+                    latestAppClientConfig = client.getAppClientConfig();
+                } catch (Exception ignored) {
+                    // Shared non-root settings can still be downloaded; root config remains gated by cached policy.
+                }
+                List<SharedSimulationConfigEntry> items = client.getSharedSimulationConfigs("");
                 runOnUiThread(() -> showSharedSimulationConfigPicker(items));
             } catch (Exception exception) {
                 runOnUiThread(() -> GoUtils.DisplayToast(
@@ -5549,9 +5619,44 @@ public class RouteRunActivity extends BaseActivity {
             settingsAltitudeProbabilitySeekBar.setProgress(Math.round((float) entry.getAltitudeVariationProbability() * 100f));
             updateAltitudeProbabilityValue(settingsAltitudeProbabilitySeekBar.getProgress());
         }
+        boolean rootConfigApplied = applySharedRootSimulationConfigIfAllowed(entry);
         updateSimulationModeViews(getSelectedSimulationMode());
         applySimulationConfigHotIfPossible();
-        GoUtils.DisplayToast(this, getString(R.string.route_settings_apply_success));
+        if (entry.isRootConfigIncluded() && !rootConfigApplied) {
+            GoUtils.DisplayToast(this, getString(R.string.route_settings_apply_success) + " Root配置需要Root设备和测试账号，已忽略。");
+        } else {
+            GoUtils.DisplayToast(this, getString(R.string.route_settings_apply_success));
+        }
+    }
+
+    private boolean applySharedRootSimulationConfigIfAllowed(@NonNull SharedSimulationConfigEntry entry) {
+        if (!entry.isRootConfigIncluded()
+                || !BuildConfig.INTERNAL_ROOT_TESTING_ENABLED
+                || !canCurrentIdentityUseRootDiagnostics(getEffectiveAppClientConfig())
+                || !isRootDetectedForRootMode()) {
+            return false;
+        }
+        try {
+            RootFeatureConfig featureConfig = RootFeatureConfig.fromJson(entry.getRootFeatureConfigJson());
+            RootDiagnosticSettings diagnosticSettings = RootDiagnosticSettings.fromJson(entry.getRootDiagnosticSettingsJson());
+            if (rootFeatureConfigStore != null) {
+                rootFeatureConfigStore.save(featureConfig);
+            }
+            if (rootDiagnosticSettingsStore != null) {
+                rootDiagnosticSettingsStore.save(diagnosticSettings);
+            }
+            latestRootFeatureConfig = featureConfig;
+            latestRootDiagnosticSettings = diagnosticSettings;
+            latestRootFeatureRuntimeReport = rootFeatureRuntimeController == null
+                    ? latestRootFeatureRuntimeReport
+                    : rootFeatureRuntimeController.reload(featureConfig);
+            renderRootAccessGate();
+            renderRootDiagnosticPanel();
+            updateRootAuditLog();
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private String trimDouble(double value) {
@@ -7091,9 +7196,12 @@ public class RouteRunActivity extends BaseActivity {
         for (SharedSimulationConfigEntry entry : entries) {
             String displayText = String.format(
                     Locale.getDefault(),
-                    "%s [%s] 循环 %d",
+                    "%s [%s] [%s] [%s%s] 循环 %d",
                     entry.getName(),
                     TextUtils.isEmpty(entry.getAuthorName()) ? "匿名" : entry.getAuthorName(),
+                    entry.isUploaderTester() ? "测试人员上传" : "未登录/非测试人员上传",
+                    entry.isUploaderRootDevice() ? "Root机" : "非Root机",
+                    entry.isRootConfigIncluded() ? "·含Root配置" : "",
                     entry.getLoopCount()
             );
             items.add(new SearchableSimulationConfigItem(
@@ -7127,7 +7235,10 @@ public class RouteRunActivity extends BaseActivity {
         filteredItems.clear();
         for (SearchableSimulationConfigItem item : sourceItems) {
             if (SearchSortUtils.matches(query, item.entry.getName())
-                    || SearchSortUtils.matches(query, item.entry.getAuthorName())) {
+                    || SearchSortUtils.matches(query, item.entry.getAuthorName())
+                    || SearchSortUtils.matches(query, item.entry.isUploaderTester() ? "测试人员上传" : "未登录 非测试人员")
+                    || SearchSortUtils.matches(query, item.entry.isUploaderRootDevice() ? "Root机 root" : "非Root机")
+                    || SearchSortUtils.matches(query, item.entry.isRootConfigIncluded() ? "Root配置" : "")) {
                 filteredItems.add(item);
             }
         }
