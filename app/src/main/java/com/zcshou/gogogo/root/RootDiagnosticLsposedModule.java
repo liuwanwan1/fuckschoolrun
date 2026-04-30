@@ -125,20 +125,12 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         if (packageName == null || shouldSkipPackage(packageName)) {
             return;
         }
-        String processName = lpparam == null ? "" : safeString(lpparam.processName);
-        if (!processName.isEmpty() && !packageName.equals(processName)) {
-            XposedBridge.log("SchoolRunDiag non-main process skipped for package: "
-                    + packageName + ", process=" + processName);
+        if (!installedPackageHooks.add(packageName)) {
+            XposedBridge.log("SchoolRunDiag duplicate load skipped for package: " + packageName);
             return;
         }
-        String processKey = packageName + "#" + (processName.isEmpty() ? packageName : processName);
-        if (!installedPackageHooks.add(processKey)) {
-            XposedBridge.log("SchoolRunDiag duplicate load skipped for package: "
-                    + packageName + ", process=" + processName);
-            return;
-        }
-        XposedBridge.log("SchoolRunDiag LSPosed loaded for package: " + packageName + ", process=" + processName);
-        installSessionReceiver(packageName, processKey, processName);
+        XposedBridge.log("SchoolRunDiag LSPosed loaded for package: " + packageName);
+        installSessionReceiver(packageName);
         installLocationHooks(packageName);
         installSignalHooks(packageName);
         installSdkLocationHooks(packageName, lpparam.classLoader);
@@ -146,13 +138,11 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         installServiceStreamHooks(packageName);
         installSensorHooks(packageName, lpparam.classLoader);
         installProcessLogHooks(packageName);
-        logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_process",
-                "process=" + processName);
         logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_loaded",
                 "LSPosed模块已在作用域进程加载：" + packageName);
     }
 
-    private void installSessionReceiver(String packageName, String processKey, String processName) {
+    private void installSessionReceiver(String packageName) {
         try {
             XposedHelpers.findAndHookMethod(Application.class, "onCreate", new XC_MethodHook() {
                 @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -160,7 +150,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                 protected void afterHookedMethod(MethodHookParam param) {
                     Application application = (Application) param.thisObject;
                     diagnosticEventContext = application.getApplicationContext();
-                    if (!registeredControlReceiverPackages.add(processKey)) {
+                    if (!registeredControlReceiverPackages.add(packageName)) {
                         return;
                     }
                     BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -171,8 +161,6 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     };
                     IntentFilter filter = new IntentFilter(LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_CONTROL);
                     registerControlReceiver(application, receiver, filter);
-                    logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "receiver_process",
-                            "process=" + processName);
                     logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "receiver_registered",
                             "LSPosed诊断控制广播已注册。");
                     LsposedDiagnosticBridge.broadcastStateRequest(application, packageName);
