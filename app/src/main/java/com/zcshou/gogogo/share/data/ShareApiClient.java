@@ -481,7 +481,8 @@ public final class ShareApiClient {
                 if (nestedNfc != null) {
                     return nestedNfc;
                 }
-                if (data.has("id") || data.has("name") || data.has("points")) {
+                if (data.has("id") || data.has("name") || data.has("points")
+                        || data.has("noticeTitle") || data.has("rootAccessAllowedTesterTypes")) {
                     return data;
                 }
             }
