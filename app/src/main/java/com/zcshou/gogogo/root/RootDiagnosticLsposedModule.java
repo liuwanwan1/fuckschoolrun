@@ -29,7 +29,10 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.telephony.CellInfo;
+import android.telephony.CellInfoLte;
+import android.telephony.CellSignalStrengthLte;
 import android.telephony.PhoneStateListener;
+import android.telephony.SignalStrength;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
@@ -60,7 +63,11 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<String> hookedLocationListenerClasses =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<String> hookedPhoneStateListenerClasses =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Method> hookedRegisterMethods =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<Method> hookedSignalStrengthMethods =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<String> loggedSensorErrors =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -734,8 +741,28 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     "WifiInfo.getSSID",
                     () -> "\"" + activeSettings.getWifiSsid() + "\""
             ));
+            XposedHelpers.findAndHookMethod(WifiInfo.class, "getRssi", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                        param.setResult(currentWifiRssiDbm());
+                    }
+                }
+            });
         } catch (Throwable throwable) {
             XposedBridge.log("SchoolRunDiag WifiInfo getter hooks skipped: " + throwable.getMessage());
+        }
+        try {
+            XposedBridge.hookAllMethods(WifiManager.class, "calculateSignalLevel", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                        param.setResult(wifiSignalLevelForArgs(param.args));
+                    }
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag WifiManager.calculateSignalLevel hook skipped: " + throwable.getMessage());
         }
         try {
             XposedHelpers.findAndHookMethod(WifiManager.class, "getConnectionInfo", new XC_MethodHook() {
@@ -749,7 +776,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     setObjectFieldQuietly(info, "mBSSID", activeSettings.getWifiBssid());
                     setObjectFieldQuietly(info, "mSSID", "\"" + activeSettings.getWifiSsid() + "\"");
                     setObjectFieldQuietly(info, "mMacAddress", "02:00:00:00:00:00");
-                    setIntFieldQuietly(info, "mRssi", -45 - (int) (Math.random() * 10d));
+                    setIntFieldQuietly(info, "mRssi", currentWifiRssiDbm());
                     logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "data_injected",
                             "WifiManager.getConnectionInfo");
                 }
@@ -775,6 +802,8 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     }
 
     private void hookRadioSurfaces(String packageName) {
+        hookSignalStrengthSurfaces(packageName);
+        hookCellSignalStrengthSurfaces(packageName);
         try {
             XposedHelpers.findAndHookMethod(TelephonyManager.class, "getNetworkOperator", returnStringHook(
                     packageName,
@@ -810,12 +839,16 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             });
             XposedHelpers.findAndHookMethod(TelephonyManager.class, "getAllCellInfo", new XC_MethodHook() {
                 @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
-                        param.setResult(new ArrayList<CellInfo>());
-                        logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "return_override",
-                                "TelephonyManager.getAllCellInfo");
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                        return;
                     }
+                    if (!(param.getResult() instanceof List)
+                            || ((List<?>) param.getResult()).isEmpty()) {
+                        param.setResult(createSyntheticCellInfoList());
+                    }
+                    logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "data_injected",
+                            "TelephonyManager.getAllCellInfo signal getters");
                 }
             });
             XposedHelpers.findAndHookMethod(TelephonyManager.class, "getCellLocation", new XC_MethodHook() {
@@ -832,8 +865,9 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                         protected void beforeHookedMethod(MethodHookParam param) {
                             if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)
                                     && param.args != null
-                                    && param.args.length > 1) {
-                                param.args[1] = PhoneStateListener.LISTEN_NONE;
+                                    && param.args.length > 0
+                                    && param.args[0] instanceof PhoneStateListener) {
+                                hookPhoneStateListener(packageName, (PhoneStateListener) param.args[0]);
                             }
                         }
                     });
@@ -851,13 +885,8 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                                         || param.args.length < 2) {
                                     return;
                                 }
-                                Executor executor = (Executor) param.args[0];
-                                TelephonyManager.CellInfoCallback callback =
-                                        (TelephonyManager.CellInfoCallback) param.args[1];
-                                if (executor != null && callback != null) {
-                                    executor.execute(() -> callback.onCellInfo(new ArrayList<CellInfo>()));
-                                }
-                                param.setResult(null);
+                                logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "api_call",
+                                        "TelephonyManager.requestCellInfoUpdate pass-through with signal overrides");
                             }
                         });
             }
@@ -876,6 +905,96 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     });
         } catch (Throwable throwable) {
             XposedBridge.log("SchoolRunDiag SubscriptionManager hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookSignalStrengthSurfaces(String packageName) {
+        hookNoArgIntMethod(SignalStrength.class, "getLevel", () -> activeSettings.getSignalStrengthProfile().getCellLevel());
+        hookNoArgIntMethod(SignalStrength.class, "getDbm", this::currentCellDbm);
+        hookNoArgIntMethod(SignalStrength.class, "getAsuLevel", () -> activeSettings.getSignalStrengthProfile().getCellAsuLevel());
+        hookNoArgIntMethod(SignalStrength.class, "getGsmSignalStrength", () -> activeSettings.getSignalStrengthProfile().getCellAsuLevel());
+        hookNoArgIntMethod(SignalStrength.class, "getCdmaDbm", this::currentCellDbm);
+        hookNoArgIntMethod(SignalStrength.class, "getEvdoDbm", this::currentCellDbm);
+        hookNoArgIntMethod(SignalStrength.class, "getLteDbm", this::currentCellDbm);
+        hookNoArgIntMethod(SignalStrength.class, "getLteRsrp", this::currentCellDbm);
+        logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "hook_installed",
+                "SignalStrength level/dbm/asu");
+    }
+
+    private void hookCellSignalStrengthSurfaces(String packageName) {
+        String[] classNames = new String[] {
+                "android.telephony.CellSignalStrength",
+                "android.telephony.CellSignalStrengthGsm",
+                "android.telephony.CellSignalStrengthCdma",
+                "android.telephony.CellSignalStrengthLte",
+                "android.telephony.CellSignalStrengthWcdma",
+                "android.telephony.CellSignalStrengthTdscdma",
+                "android.telephony.CellSignalStrengthNr"
+        };
+        for (String className : classNames) {
+            try {
+                Class<?> signalClass = XposedHelpers.findClass(className, null);
+                hookNoArgIntMethod(signalClass, "getDbm", this::currentCellDbm);
+                hookNoArgIntMethod(signalClass, "getAsuLevel", () -> activeSettings.getSignalStrengthProfile().getCellAsuLevel());
+                hookNoArgIntMethod(signalClass, "getLevel", () -> activeSettings.getSignalStrengthProfile().getCellLevel());
+                hookNoArgIntMethod(signalClass, "getRssi", this::currentCellDbm);
+                hookNoArgIntMethod(signalClass, "getRsrp", this::currentCellDbm);
+                hookNoArgIntMethod(signalClass, "getRscp", this::currentCellDbm);
+                logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "hook_installed",
+                        className + " strength getters");
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag CellSignalStrength hook skipped: "
+                        + className + " " + throwable.getMessage());
+            }
+        }
+    }
+
+    private void hookNoArgIntMethod(Class<?> targetClass, String methodName, IntSupplier supplier) {
+        if (targetClass == null) {
+            return;
+        }
+        for (Method method : targetClass.getDeclaredMethods()) {
+            if (!methodName.equals(method.getName())
+                    || method.getParameterTypes().length != 0
+                    || method.getReturnType() != int.class
+                    || !hookedSignalStrengthMethods.add(method)) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                            param.setResult(supplier.get());
+                        }
+                    }
+                });
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag int hook skipped: "
+                        + targetClass.getName() + "." + methodName + " " + throwable.getMessage());
+            }
+        }
+    }
+
+    private void hookPhoneStateListener(String packageName, PhoneStateListener listener) {
+        Class<?> listenerClass = listener.getClass();
+        String className = listenerClass.getName();
+        if (!hookedPhoneStateListenerClasses.add(className)) {
+            return;
+        }
+        try {
+            XposedHelpers.findAndHookMethod(listenerClass, "onSignalStrengthsChanged", SignalStrength.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                                logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "data_injected",
+                                        "PhoneStateListener.onSignalStrengthsChanged -> " + className);
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag PhoneStateListener signal hook skipped: " + throwable.getMessage());
         }
     }
 
@@ -909,7 +1028,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             ScanResult result = constructor.newInstance();
             result.SSID = activeSettings.getWifiSsid();
             result.BSSID = activeSettings.getWifiBssid();
-            result.level = -45 - (int) (Math.random() * 10d);
+            result.level = currentWifiRssiDbm();
             result.capabilities = "[WPA2-PSK-CCMP][ESS]";
             result.frequency = 2412;
             if (Build.VERSION.SDK_INT >= 17) {
@@ -920,6 +1039,57 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             // Some vendor frameworks block ScanResult construction; return an empty controlled list.
         }
         return results;
+    }
+
+    private List<CellInfo> createSyntheticCellInfoList() {
+        List<CellInfo> results = new ArrayList<>();
+        try {
+            CellInfoLte cellInfo = (CellInfoLte) XposedHelpers.newInstance(CellInfoLte.class);
+            CellSignalStrengthLte strength =
+                    (CellSignalStrengthLte) XposedHelpers.newInstance(CellSignalStrengthLte.class);
+            int dbm = currentCellDbm();
+            setIntFieldQuietly(strength, "mRssi", dbm);
+            setIntFieldQuietly(strength, "mRsrp", dbm);
+            setIntFieldQuietly(strength, "mLevel", activeSettings.getSignalStrengthProfile().getCellLevel());
+            setObjectFieldQuietly(cellInfo, "mCellSignalStrengthLte", strength);
+            results.add(cellInfo);
+        } catch (Throwable ignored) {
+            // Vendor framework layouts differ; signal getter hooks still cover real CellInfo instances.
+        }
+        return results;
+    }
+
+    private int currentWifiRssiDbm() {
+        return jitteredDbm(activeSettings.getWifiRssiDbm(), activeSettings.getWifiJitterDbm(), -100, -30);
+    }
+
+    private int currentCellDbm() {
+        return jitteredDbm(activeSettings.getCellDbm(), activeSettings.getCellJitterDbm(), -125, -50);
+    }
+
+    private int wifiSignalLevelForArgs(Object[] args) {
+        int fiveLevelValue = activeSettings.getSignalStrengthProfile().getWifiLevel();
+        int levels = 5;
+        if (args != null && args.length > 1 && args[1] instanceof Integer) {
+            levels = Math.max(1, (Integer) args[1]);
+        }
+        if (levels <= 1) {
+            return 0;
+        }
+        return Math.min(levels - 1, Math.round(fiveLevelValue * (levels - 1) / 4f));
+    }
+
+    private int jitteredDbm(int baseDbm, int jitterDbm, int minDbm, int maxDbm) {
+        if (jitterDbm <= 0) {
+            return clamp(baseDbm, minDbm, maxDbm);
+        }
+        int spread = jitterDbm * 2 + 1;
+        int delta = (int) (Math.random() * spread) - jitterDbm;
+        return clamp(baseDbm + delta, minDbm, maxDbm);
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private void setObjectFieldQuietly(Object instance, String fieldName, Object value) {
@@ -1433,6 +1603,10 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
 
     private interface ObjectSupplier {
         Object get();
+    }
+
+    private interface IntSupplier {
+        int get();
     }
 
     private static final class LocationInjectionTarget {

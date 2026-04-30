@@ -44,6 +44,7 @@ public final class RootDiagnosticSettings {
     private final String wifiSsid;
     private final String networkOperator;
     private final String networkCountry;
+    private final RootSignalStrengthProfile signalStrengthProfile;
     private final boolean bypassRootArtifacts;
     private final boolean bypassDebugger;
     private final boolean bypassMockLocation;
@@ -67,6 +68,7 @@ public final class RootDiagnosticSettings {
             @NonNull String wifiSsid,
             @NonNull String networkOperator,
             @NonNull String networkCountry,
+            @NonNull RootSignalStrengthProfile signalStrengthProfile,
             boolean bypassRootArtifacts,
             boolean bypassDebugger,
             boolean bypassMockLocation,
@@ -89,6 +91,7 @@ public final class RootDiagnosticSettings {
         this.wifiSsid = sanitize(wifiSsid, "Internal-Test-WiFi");
         this.networkOperator = sanitize(networkOperator, "46000");
         this.networkCountry = sanitize(networkCountry, "cn");
+        this.signalStrengthProfile = signalStrengthProfile;
         this.bypassRootArtifacts = bypassRootArtifacts;
         this.bypassDebugger = bypassDebugger;
         this.bypassMockLocation = bypassMockLocation;
@@ -117,6 +120,7 @@ public final class RootDiagnosticSettings {
                 "Internal-Test-WiFi",
                 "46000",
                 "cn",
+                RootSignalStrengthProfile.defaults(),
                 true,
                 true,
                 true,
@@ -150,6 +154,7 @@ public final class RootDiagnosticSettings {
                     object.optString(KEY_WIFI_SSID, defaults.getWifiSsid()),
                     object.optString(KEY_NETWORK_OPERATOR, defaults.getNetworkOperator()),
                     object.optString(KEY_NETWORK_COUNTRY, defaults.getNetworkCountry()),
+                    RootSignalStrengthProfile.fromJson(object, defaults.getSignalStrengthProfile()),
                     object.optBoolean(KEY_BYPASS_ROOT_ARTIFACTS, defaults.isBypassRootArtifacts()),
                     object.optBoolean(KEY_BYPASS_DEBUGGER, defaults.isBypassDebugger()),
                     object.optBoolean(KEY_BYPASS_MOCK_LOCATION, defaults.isBypassMockLocation()),
@@ -181,6 +186,7 @@ public final class RootDiagnosticSettings {
             object.put(KEY_WIFI_SSID, wifiSsid);
             object.put(KEY_NETWORK_OPERATOR, networkOperator);
             object.put(KEY_NETWORK_COUNTRY, networkCountry);
+            signalStrengthProfile.writeToJson(object);
             object.put(KEY_BYPASS_ROOT_ARTIFACTS, bypassRootArtifacts);
             object.put(KEY_BYPASS_DEBUGGER, bypassDebugger);
             object.put(KEY_BYPASS_MOCK_LOCATION, bypassMockLocation);
@@ -205,7 +211,11 @@ public final class RootDiagnosticSettings {
                         locationLatitude, locationLongitude, locationSpeedMetersPerSecond,
                         locationAltitudeMeters, locationBearingDegrees, locationSatellites, locationHdop);
             case RADIO_WIFI_SIGNAL:
-                return "ssid=" + wifiSsid + ", bssid=" + wifiBssid + ", operator=" + networkOperator + ", country=" + networkCountry;
+                return "ssid=" + wifiSsid
+                        + ", bssid=" + wifiBssid
+                        + ", operator=" + networkOperator
+                        + ", country=" + networkCountry
+                        + ", " + signalStrengthProfile.summarize();
             case DETECTION_BYPASS:
                 return "root=" + bypassRootArtifacts + ", debugger=" + bypassDebugger + ", mockLocation=" + bypassMockLocation;
             case TARGET_APP_HOOK:
@@ -265,6 +275,27 @@ public final class RootDiagnosticSettings {
     @NonNull
     public String getNetworkCountry() {
         return networkCountry;
+    }
+
+    @NonNull
+    public RootSignalStrengthProfile getSignalStrengthProfile() {
+        return signalStrengthProfile;
+    }
+
+    public int getWifiRssiDbm() {
+        return signalStrengthProfile.getWifiRssiDbm();
+    }
+
+    public int getWifiJitterDbm() {
+        return signalStrengthProfile.getWifiJitterDbm();
+    }
+
+    public int getCellDbm() {
+        return signalStrengthProfile.getCellDbm();
+    }
+
+    public int getCellJitterDbm() {
+        return signalStrengthProfile.getCellJitterDbm();
     }
 
     public boolean isBypassRootArtifacts() {
@@ -348,6 +379,7 @@ public final class RootDiagnosticSettings {
                 wifiSsid,
                 networkOperator,
                 networkCountry,
+                signalStrengthProfile,
                 bypassRootArtifacts,
                 bypassDebugger,
                 bypassMockLocation,
@@ -368,6 +400,17 @@ public final class RootDiagnosticSettings {
             @NonNull String operator,
             @NonNull String country
     ) {
+        return withSignal(bssid, ssid, operator, country, signalStrengthProfile);
+    }
+
+    @NonNull
+    public RootDiagnosticSettings withSignal(
+            @NonNull String bssid,
+            @NonNull String ssid,
+            @NonNull String operator,
+            @NonNull String country,
+            @NonNull RootSignalStrengthProfile signalStrengthProfile
+    ) {
         return new RootDiagnosticSettings(
                 locationLatitude,
                 locationLongitude,
@@ -380,6 +423,7 @@ public final class RootDiagnosticSettings {
                 ssid,
                 operator,
                 country,
+                signalStrengthProfile,
                 bypassRootArtifacts,
                 bypassDebugger,
                 bypassMockLocation,
@@ -411,6 +455,7 @@ public final class RootDiagnosticSettings {
                 wifiSsid,
                 networkOperator,
                 networkCountry,
+                signalStrengthProfile,
                 rootArtifacts,
                 debugger,
                 mockLocation,
@@ -438,6 +483,7 @@ public final class RootDiagnosticSettings {
                 wifiSsid,
                 networkOperator,
                 networkCountry,
+                signalStrengthProfile,
                 bypassRootArtifacts,
                 bypassDebugger,
                 bypassMockLocation,
@@ -469,6 +515,7 @@ public final class RootDiagnosticSettings {
                 wifiSsid,
                 networkOperator,
                 networkCountry,
+                signalStrengthProfile,
                 bypassRootArtifacts,
                 bypassDebugger,
                 bypassMockLocation,
@@ -500,6 +547,7 @@ public final class RootDiagnosticSettings {
                 wifiSsid,
                 networkOperator,
                 networkCountry,
+                signalStrengthProfile,
                 bypassRootArtifacts,
                 bypassDebugger,
                 bypassMockLocation,

@@ -110,6 +110,7 @@ import com.acooldog.toolbox.root.RootFeatureRuntimeController;
 import com.acooldog.toolbox.root.RootFeatureRuntimeReport;
 import com.acooldog.toolbox.root.RootGmTestData;
 import com.acooldog.toolbox.root.RootGmTestDataGenerator;
+import com.acooldog.toolbox.root.RootSignalStrengthProfile;
 import com.acooldog.toolbox.root.RootShellProbeResult;
 import com.acooldog.toolbox.root.RootTestAuditLogger;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
@@ -3158,12 +3159,22 @@ public class RouteRunActivity extends BaseActivity {
         EditText ssidInput = addRootSettingsEdit(content, "Wi-Fi SSID", settings.getWifiSsid());
         EditText operatorInput = addRootSettingsEdit(content, "运营商MCC/MNC", settings.getNetworkOperator());
         EditText countryInput = addRootSettingsEdit(content, "网络国家码", settings.getNetworkCountry());
+        EditText wifiRssiInput = addRootSettingsEdit(content, "Wi-Fi RSSI dBm (-30~-100)", settings.getWifiRssiDbm());
+        EditText wifiJitterInput = addRootSettingsEdit(content, "Wi-Fi 抖动 dBm (0~20)", settings.getWifiJitterDbm());
+        EditText cellDbmInput = addRootSettingsEdit(content, "Cell dBm (-50~-125)", settings.getCellDbm());
+        EditText cellJitterInput = addRootSettingsEdit(content, "Cell 抖动 dBm (0~20)", settings.getCellJitterDbm());
         showRootSettingsDialog(RootDiagnosticModule.RADIO_WIFI_SIGNAL, content, () -> saveRootDiagnosticSettings(
                 settings.withSignal(
                         requireRootSettingText(bssidInput, "Wi-Fi BSSID"),
                         requireRootSettingText(ssidInput, "Wi-Fi SSID"),
                         requireRootSettingText(operatorInput, "运营商MCC/MNC"),
-                        requireRootSettingText(countryInput, "网络国家码")
+                        requireRootSettingText(countryInput, "网络国家码"),
+                        new RootSignalStrengthProfile(
+                                parseRootSettingInt(wifiRssiInput, "Wi-Fi RSSI"),
+                                parseRootSettingInt(wifiJitterInput, "Wi-Fi 抖动"),
+                                parseRootSettingInt(cellDbmInput, "Cell dBm"),
+                                parseRootSettingInt(cellJitterInput, "Cell 抖动")
+                        )
                 )
         ));
     }
