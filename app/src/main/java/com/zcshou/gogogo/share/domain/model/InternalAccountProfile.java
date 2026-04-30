@@ -70,6 +70,7 @@ public final class InternalAccountProfile {
         return isActive()
                 && (TYPE_ORDINARY.equals(testerType)
                 || TYPE_ADVANCED.equals(testerType)
+                || TYPE_DONOR.equals(testerType)
                 || TYPE_PIONEER.equals(testerType));
     }
 

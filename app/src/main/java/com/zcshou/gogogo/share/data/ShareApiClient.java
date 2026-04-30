@@ -14,6 +14,7 @@ import com.acooldog.toolbox.root.RootFeatureConfig;
 import com.acooldog.toolbox.share.domain.model.AppClientConfig;
 import com.acooldog.toolbox.share.domain.model.InternalAccountProfile;
 import com.acooldog.toolbox.share.domain.model.InternalLoginResult;
+import com.acooldog.toolbox.share.domain.model.InternalSoftwareName;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
 import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
@@ -264,6 +265,47 @@ public final class ShareApiClient {
                 optString(jsonObject, "htmlContent"),
                 optString(jsonObject, "plainText")
         );
+    }
+
+    public List<InternalSoftwareName> getInternalSoftwareNames() throws IOException {
+        Request request = new Request.Builder()
+                .url(buildUrl("api/app-logs/software-names"))
+                .get()
+                .build();
+        JSONArray items = executeArray(request);
+        List<InternalSoftwareName> results = new ArrayList<>();
+        for (int index = 0; index < items.length(); index++) {
+            results.add(parseInternalSoftwareName(items.optJSONObject(index)));
+        }
+        return results;
+    }
+
+    public void submitInternalSoftwareName(String name, String token) throws IOException {
+        JSONObject bodyJson = new JSONObject();
+        try {
+            bodyJson.put("name", name);
+        } catch (JSONException exception) {
+            throw new IOException("Unable to encode software name request", exception);
+        }
+        Request request = newRequestBuilder(buildUrl("api/app-logs/software-name-submissions"), token)
+                .post(RequestBody.create(bodyJson.toString(), JSON_MEDIA_TYPE))
+                .build();
+        executeRequest(request);
+    }
+
+    public void uploadAppLog(String softwareName, String contactQq, String logText, String token) throws IOException {
+        JSONObject bodyJson = new JSONObject();
+        try {
+            bodyJson.put("softwareName", softwareName);
+            bodyJson.put("contactQq", contactQq);
+            bodyJson.put("logText", logText);
+        } catch (JSONException exception) {
+            throw new IOException("Unable to encode app log request", exception);
+        }
+        Request request = newRequestBuilder(buildUrl("api/app-logs"), token)
+                .post(RequestBody.create(bodyJson.toString(), JSON_MEDIA_TYPE))
+                .build();
+        executeRequest(request);
     }
 
     public List<SharedSimulationConfigEntry> getSharedSimulationConfigs(String query) throws IOException {
@@ -572,6 +614,17 @@ public final class ShareApiClient {
                 optString(jsonObject, "remark"),
                 optString(jsonObject, "testerType"),
                 optString(jsonObject, "testerTypeLabel"),
+                optString(jsonObject, "status")
+        );
+    }
+
+    private InternalSoftwareName parseInternalSoftwareName(JSONObject jsonObject) throws IOException {
+        if (jsonObject == null) {
+            throw new IOException("Internal software name item is empty");
+        }
+        return new InternalSoftwareName(
+                optString(jsonObject, "id"),
+                optString(jsonObject, "name"),
                 optString(jsonObject, "status")
         );
     }

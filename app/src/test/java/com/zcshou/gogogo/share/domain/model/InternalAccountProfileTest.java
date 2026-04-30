@@ -20,7 +20,7 @@ public class InternalAccountProfileTest {
 
         assertEquals("donor", profile.getTesterType());
         assertEquals("贡献者账号", profile.getTesterTypeLabel());
-        assertFalse(profile.canUseRootDiagnostics());
+        assertTrue(profile.canUseRootDiagnostics());
     }
 
     @Test

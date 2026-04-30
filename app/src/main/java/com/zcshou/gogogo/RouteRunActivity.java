@@ -123,6 +123,7 @@ import com.acooldog.toolbox.root.RootShellProbeResult;
 import com.acooldog.toolbox.root.RootTestAuditLogger;
 import com.acooldog.toolbox.share.data.ShareApiClient;
 import com.acooldog.toolbox.share.domain.model.AppClientConfig;
+import com.acooldog.toolbox.share.domain.model.InternalSoftwareName;
 import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
 import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
@@ -247,6 +248,7 @@ public class RouteRunActivity extends BaseActivity {
     private int simulationSettingsHomeScrollY;
     private boolean simulationSettingsNonRootCollapsed;
     private boolean simulationSettingsRootCollapsed;
+    private boolean rootLogSubmissionHintShown;
     private RootSettingsSaveAction simulationSettingsActiveSaveAction;
     private TextView settingsReminderToneView;
     private TextView settingsNonRootTabView;
@@ -2658,6 +2660,7 @@ public class RouteRunActivity extends BaseActivity {
         setupSimulationSettingsNavigator(dialogView);
         showSimulationSettingsOverlay();
         showSimulationSettingsHomePage();
+        showRootLogSubmissionHintIfNeeded();
     }
 
     private void showSimulationSettingsOverlay() {
@@ -3221,9 +3224,7 @@ public class RouteRunActivity extends BaseActivity {
             simulationSettingsTitleView.setText("日志输出 " + date);
         }
         if (simulationSettingsPrimaryButton != null) {
-            simulationSettingsPrimaryButton.setVisibility(View.VISIBLE);
-            simulationSettingsPrimaryButton.setText("复制日志");
-            simulationSettingsPrimaryButton.setOnClickListener(v -> copyRootDiagnosticLog(date, logText));
+            simulationSettingsPrimaryButton.setVisibility(View.GONE);
         }
 
         ScrollView scrollView = new ScrollView(this);
@@ -3234,6 +3235,34 @@ public class RouteRunActivity extends BaseActivity {
         scrollView.addView(page, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setGravity(Gravity.CENTER_VERTICAL);
+        Button copyButton = new Button(this);
+        copyButton.setText("复制日志");
+        copyButton.setOnClickListener(v -> copyRootDiagnosticLog(date, logText));
+        Button uploadButton = new Button(this);
+        uploadButton.setText("上传日志");
+        uploadButton.setOnClickListener(v -> showUploadRootDiagnosticLogDialog(date, logText));
+        LinearLayout.LayoutParams actionButtonParams = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        );
+        int actionGap = Math.round(dp(8f));
+        actionButtonParams.setMargins(0, 0, actionGap, Math.round(dp(10f)));
+        actionRow.addView(copyButton, actionButtonParams);
+        LinearLayout.LayoutParams uploadButtonParams = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        );
+        uploadButtonParams.setMargins(actionGap, 0, 0, Math.round(dp(10f)));
+        actionRow.addView(uploadButton, uploadButtonParams);
+        page.addView(actionRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
         ));
         TextView logView = new TextView(this);
         logView.setText(TextUtils.isEmpty(logText) ? "当天暂无日志。" : logText);
@@ -3267,6 +3296,191 @@ public class RouteRunActivity extends BaseActivity {
         }
         clipboardManager.setPrimaryClip(ClipData.newPlainText("root-diagnostic-log-" + date, logText));
         GoUtils.DisplayToast(this, "日志已复制。");
+    }
+
+    private void showUploadRootDiagnosticLogDialog(@NonNull String date, @NonNull String logText) {
+        if (TextUtils.isEmpty(logText)) {
+            GoUtils.DisplayToast(this, "没有可上传的日志。");
+            return;
+        }
+        if (ioExecutor == null || ioExecutor.isShutdown()) {
+            GoUtils.DisplayToast(this, "日志上传线程不可用。");
+            return;
+        }
+        GoUtils.DisplayToast(this, "正在加载内部软件名…");
+        ioExecutor.execute(() -> {
+            try {
+                List<InternalSoftwareName> softwareNames = ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .getInternalSoftwareNames();
+                runOnUiThread(() -> showUploadRootDiagnosticLogForm(date, logText, softwareNames));
+            } catch (Exception exception) {
+                runOnUiThread(() -> GoUtils.DisplayToast(this, "加载内部软件名失败：" + exception.getMessage()));
+            }
+        });
+    }
+
+    private void showUploadRootDiagnosticLogForm(
+            @NonNull String date,
+            @NonNull String logText,
+            @NonNull List<InternalSoftwareName> softwareNames
+    ) {
+        List<String> names = new ArrayList<>();
+        for (InternalSoftwareName item : softwareNames) {
+            if (item != null && !TextUtils.isEmpty(item.getName()) && !names.contains(item.getName())) {
+                names.add(item.getName());
+            }
+        }
+        if (names.isEmpty()) {
+            GoUtils.DisplayToast(this, "暂无已审核内部软件名，请先提交软件名。");
+            showSubmitInternalSoftwareNameDialog();
+            return;
+        }
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int padding = Math.round(dp(18f));
+        content.setPadding(padding, Math.round(dp(8f)), padding, 0);
+
+        TextView softwareLabel = new TextView(this);
+        softwareLabel.setText("内部软件名称（必选）");
+        softwareLabel.setTextColor(Color.parseColor("#1F2A37"));
+        content.addView(softwareLabel, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        Spinner softwareSpinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        softwareSpinner.setAdapter(adapter);
+        content.addView(softwareSpinner, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        EditText qqInput = new EditText(this);
+        qqInput.setSingleLine(true);
+        qqInput.setHint("联系QQ（必填）");
+        qqInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        LinearLayout.LayoutParams qqParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        qqParams.setMargins(0, Math.round(dp(14f)), 0, 0);
+        content.addView(qqInput, qqParams);
+
+        TextView hintView = new TextView(this);
+        hintView.setText("确认选择后会上传 " + date + " 当天日志。若列表没有目标软件，请点“上传更多软件名”提交审核。");
+        hintView.setTextColor(Color.parseColor("#667085"));
+        hintView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        hintParams.setMargins(0, Math.round(dp(10f)), 0, 0);
+        content.addView(hintView, hintParams);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("上传日志")
+                .setView(content)
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .setNeutralButton("上传更多软件名", null)
+                .setPositiveButton("确认选择", null)
+                .create();
+        dialog.setOnShowListener(shownDialog -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v ->
+                    showSubmitInternalSoftwareNameDialog());
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String selectedName = softwareSpinner.getSelectedItem() == null
+                        ? ""
+                        : softwareSpinner.getSelectedItem().toString().trim();
+                String qq = qqInput.getText() == null ? "" : qqInput.getText().toString().trim();
+                if (TextUtils.isEmpty(selectedName)) {
+                    GoUtils.DisplayToast(this, "请选择内部软件名称。");
+                    return;
+                }
+                if (TextUtils.isEmpty(qq)) {
+                    GoUtils.DisplayToast(this, "请填写联系QQ。");
+                    return;
+                }
+                uploadRootDiagnosticLog(selectedName, qq, logText, dialog);
+            });
+        });
+        dialog.show();
+    }
+
+    private void showSubmitInternalSoftwareNameDialog() {
+        EditText nameInput = new EditText(this);
+        nameInput.setSingleLine(true);
+        nameInput.setHint("请输入我司内部软件名称");
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("上传更多软件名")
+                .setView(nameInput)
+                .setNegativeButton(R.string.route_link_settings_cancel, null)
+                .setPositiveButton("提交审核", null)
+                .create();
+        dialog.setOnShowListener(shownDialog -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String name = nameInput.getText() == null ? "" : nameInput.getText().toString().trim();
+            if (TextUtils.isEmpty(name)) {
+                GoUtils.DisplayToast(this, "请输入内部软件名称。");
+                return;
+            }
+            submitInternalSoftwareName(name, dialog);
+        }));
+        dialog.show();
+    }
+
+    private void submitInternalSoftwareName(
+            @NonNull String name,
+            @NonNull AlertDialog dialog
+    ) {
+        if (ioExecutor == null || ioExecutor.isShutdown()) {
+            GoUtils.DisplayToast(this, "提交线程不可用。");
+            return;
+        }
+        GoUtils.DisplayToast(this, "正在提交软件名审核…");
+        String token = new InternalAuthStore(getApplicationContext()).getToken();
+        ioExecutor.execute(() -> {
+            try {
+                ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .submitInternalSoftwareName(name, token);
+                runOnUiThread(() -> {
+                    dialog.dismiss();
+                    GoUtils.DisplayToast(this, "软件名已提交后端审核。");
+                });
+            } catch (Exception exception) {
+                runOnUiThread(() -> GoUtils.DisplayToast(this, "提交软件名失败：" + exception.getMessage()));
+            }
+        });
+    }
+
+    private void uploadRootDiagnosticLog(
+            @NonNull String softwareName,
+            @NonNull String contactQq,
+            @NonNull String logText,
+            @NonNull AlertDialog dialog
+    ) {
+        if (ioExecutor == null || ioExecutor.isShutdown()) {
+            GoUtils.DisplayToast(this, "日志上传线程不可用。");
+            return;
+        }
+        GoUtils.DisplayToast(this, "正在上传日志…");
+        String token = new InternalAuthStore(getApplicationContext()).getToken();
+        ioExecutor.execute(() -> {
+            try {
+                ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .uploadAppLog(softwareName, contactQq, logText, token);
+                runOnUiThread(() -> {
+                    dialog.dismiss();
+                    GoUtils.DisplayToast(this, "日志已上传。");
+                });
+            } catch (Exception exception) {
+                runOnUiThread(() -> GoUtils.DisplayToast(this, "上传日志失败：" + exception.getMessage()));
+            }
+        });
     }
 
     private void filterSimulationSettingsHomeRows(
@@ -5050,7 +5264,22 @@ public class RouteRunActivity extends BaseActivity {
     private boolean renderRootAccessGate() {
         boolean allowed = isInternalRootTestingEnabled();
         setRootContainerChildrenVisible(allowed);
+        if (allowed) {
+            showRootLogSubmissionHintIfNeeded();
+        }
         return allowed;
+    }
+
+    private void showRootLogSubmissionHintIfNeeded() {
+        if (rootLogSubmissionHintShown || simulationSettingsOverlay == null || !isInternalRootTestingEnabled()) {
+            return;
+        }
+        rootLogSubmissionHintShown = true;
+        new AlertDialog.Builder(this)
+                .setTitle("日志提交通道")
+                .setMessage("Root日志输出页选择日期后，可以点击上传日志。上传时必须选择内部软件名并填写联系QQ；如果列表没有对应软件名，可先提交更多软件名，等待后端审核通过后再选择。")
+                .setPositiveButton(R.string.route_link_settings_confirm, null)
+                .show();
     }
 
     private void setRootContainerChildrenVisible(boolean visible) {
