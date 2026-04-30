@@ -19,6 +19,8 @@ import android.net.wifi.WifiInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Debug;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
@@ -46,6 +48,12 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<String> hookedLocationListenerClasses =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<Method> hookedRegisterMethods =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<String> loggedSensorErrors =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final ConcurrentHashMap<String, SensorInjectionTarget> sensorInjectionTargets =
+            new ConcurrentHashMap<>();
 
     private static volatile boolean active;
     private static volatile String activeSessionId = "";
@@ -56,20 +64,25 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     private static volatile float stepBaseOffset = -1f;
     private static volatile double currentCadence;
     private static volatile long lastSensorLogSecond = -1L;
+    private static volatile boolean sensorPulseScheduled;
+    private static Handler sensorPulseHandler;
 
     static {
         EXCLUDED_PACKAGES.add(MODULE_PACKAGE);
         EXCLUDED_PACKAGES.add("android");
+        EXCLUDED_PACKAGES.add("com.android.shell");
         EXCLUDED_PACKAGES.add("com.android.systemui");
         EXCLUDED_PACKAGES.add("com.android.launcher");
         EXCLUDED_PACKAGES.add("com.android.settings");
         EXCLUDED_PACKAGES.add("com.android.packageinstaller");
+        EXCLUDED_PACKAGES.add("org.lsposed.manager");
+        EXCLUDED_PACKAGES.add("de.robv.android.xposed.installer");
     }
 
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) {
         String packageName = lpparam == null ? "" : lpparam.packageName;
-        if (packageName == null || EXCLUDED_PACKAGES.contains(packageName)) {
+        if (packageName == null || shouldSkipPackage(packageName)) {
             return;
         }
         XposedBridge.log("SchoolRunDiag LSPosed loaded for package: " + packageName);
@@ -100,6 +113,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     registerControlReceiver(application, receiver, filter);
                     logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "receiver_registered",
                             "LSPosed诊断控制广播已注册。");
+                    LsposedDiagnosticBridge.broadcastStateRequest(application, packageName);
                 }
             });
         } catch (Throwable throwable) {
@@ -147,6 +161,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             );
             active = true;
             resetSensorState();
+            scheduleSensorPulseLoop(packageName);
             logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_session_started",
                     "LSPosed作用域诊断已启动，模块数=" + modules.size());
             for (RootDiagnosticModule module : modules) {
@@ -168,6 +183,21 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                             + ", speed=" + activeSettings.getLocationSpeedMetersPerSecond());
             return;
         }
+        if (LsposedDiagnosticBridge.COMMAND_UPDATE_SETTINGS.equals(command)) {
+            if (!active || !safeString(intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SESSION_ID)).equals(activeSessionId)) {
+                return;
+            }
+            activeSettings = RootDiagnosticSettings.fromJson(
+                    intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SETTINGS_JSON)
+            );
+            if (activeModules.contains(RootDiagnosticModule.SENSOR_INJECTION)) {
+                resetSensorState();
+                scheduleSensorPulseLoop(packageName);
+            }
+            logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "settings_updated",
+                    "LSPosed作用域诊断设置已更新。");
+            return;
+        }
         if (LsposedDiagnosticBridge.COMMAND_STOP.equals(command)) {
             logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_session_stopped",
                     "LSPosed作用域诊断已停止。");
@@ -175,6 +205,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             activeSessionId = "";
             activeModules = Collections.newSetFromMap(new ConcurrentHashMap<>());
             resetSensorState();
+            stopSensorPulseLoop();
         }
     }
 
@@ -471,18 +502,61 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             if (!"registerListener".equals(method.getName())) {
                 continue;
             }
+            if (!hookedRegisterMethods.add(method)) {
+                continue;
+            }
             XposedBridge.hookMethod(method, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    if (!isModuleActive(RootDiagnosticModule.SENSOR_INJECTION)) {
-                        return;
-                    }
                     if (param.args.length > 0 && param.args[0] instanceof SensorEventListener) {
-                        hookSensorEventListener(packageName, (SensorEventListener) param.args[0]);
+                        SensorEventListener listener = (SensorEventListener) param.args[0];
+                        hookSensorEventListener(packageName, listener);
+                        Sensor sensor = findSensorArg(param.args);
+                        if (sensor != null) {
+                            registerSensorInjectionTarget(listener, sensor, findHandlerArg(param.args));
+                            scheduleSensorPulseLoop(packageName);
+                        }
                     }
                 }
             });
         }
+    }
+
+    private Sensor findSensorArg(Object[] args) {
+        if (args == null) {
+            return null;
+        }
+        for (Object arg : args) {
+            if (arg instanceof Sensor) {
+                return (Sensor) arg;
+            }
+        }
+        return null;
+    }
+
+    private Handler findHandlerArg(Object[] args) {
+        if (args == null) {
+            return null;
+        }
+        for (Object arg : args) {
+            if (arg instanceof Handler) {
+                return (Handler) arg;
+            }
+        }
+        return null;
+    }
+
+    private void registerSensorInjectionTarget(
+            SensorEventListener listener,
+            Sensor sensor,
+            Handler handler
+    ) {
+        int type = sensor.getType();
+        if (type != Sensor.TYPE_STEP_COUNTER && type != Sensor.TYPE_STEP_DETECTOR && type != 19) {
+            return;
+        }
+        String key = System.identityHashCode(listener) + ":" + type;
+        sensorInjectionTargets.put(key, new SensorInjectionTarget(listener, sensor, handler));
     }
 
     private void hookSensorEventListener(String packageName, SensorEventListener listener) {
@@ -495,50 +569,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             XposedHelpers.findAndHookMethod(listenerClass, "onSensorChanged", SensorEvent.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    if (!isModuleActive(RootDiagnosticModule.SENSOR_INJECTION)) {
-                        return;
-                    }
-                    SensorEvent event = (SensorEvent) param.args[0];
-                    if (event == null || event.sensor == null || event.values == null) {
-                        return;
-                    }
-                    int type = event.sensor.getType();
-                    if (type != Sensor.TYPE_ACCELEROMETER
-                            && type != Sensor.TYPE_STEP_COUNTER
-                            && type != Sensor.TYPE_STEP_DETECTOR
-                            && type != 19) {
-                        return;
-                    }
-                    long now = System.currentTimeMillis();
-                    if (sensorStartMillis == 0L) {
-                        resetSensorState();
-                    }
-                    double elapsedSeconds = Math.max(0d, (now - sensorStartMillis) / 1000d);
-                    double frequency = currentCadence / 60d;
-                    double phase = elapsedSeconds * Math.PI * 2d * frequency;
-                    if (type == Sensor.TYPE_ACCELEROMETER && event.values.length >= 3) {
-                        double jitterY = (Math.random() * 0.3d) - 0.15d;
-                        double jitterZ = (Math.random() * 0.3d) - 0.15d;
-                        event.values[0] = (float) ((Math.random() * 0.1d) - 0.05d);
-                        event.values[1] = (float) (Math.cos(phase) * 1.5d + jitterY);
-                        event.values[2] = (float) (9.81d
-                                + Math.sin(phase) * activeSettings.getSensorWaveAmplitude()
-                                + jitterZ);
-                        long elapsedWholeSecond = (long) elapsedSeconds;
-                        if (elapsedWholeSecond != lastSensorLogSecond) {
-                            lastSensorLogSecond = elapsedWholeSecond;
-                            logEvent(packageName, RootDiagnosticModule.SENSOR_INJECTION, "data_injected",
-                                    "accelerometer cadence=" + Math.round(currentCadence));
-                        }
-                    } else if ((type == Sensor.TYPE_STEP_COUNTER || type == 19) && event.values.length >= 1) {
-                        if (stepBaseOffset < 0f) {
-                            stepBaseOffset = event.values[0];
-                        }
-                        event.values[0] = stepBaseOffset + (float) (elapsedSeconds * frequency);
-                    } else if (type == Sensor.TYPE_STEP_DETECTOR && event.values.length >= 1) {
-                        event.values[0] = 1.0f;
-                    }
-                    event.timestamp = SystemClock.elapsedRealtimeNanos();
+                    safelyInjectSensorEvent(packageName, className, param);
                 }
             });
             logEvent(packageName, RootDiagnosticModule.SENSOR_INJECTION, "hook_installed",
@@ -546,6 +577,175 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         } catch (Throwable throwable) {
             XposedBridge.log("SchoolRunDiag sensor listener hook failed: " + throwable.getMessage());
         }
+    }
+
+    private void safelyInjectSensorEvent(
+            String packageName,
+            String listenerClassName,
+            XC_MethodHook.MethodHookParam param
+    ) {
+        try {
+            if (!isModuleActive(RootDiagnosticModule.SENSOR_INJECTION)) {
+                return;
+            }
+            if (param.args == null || param.args.length == 0 || !(param.args[0] instanceof SensorEvent)) {
+                return;
+            }
+            SensorEvent event = (SensorEvent) param.args[0];
+            if (event == null || event.sensor == null || event.values == null) {
+                return;
+            }
+            int type = event.sensor.getType();
+            if (type != Sensor.TYPE_ACCELEROMETER
+                    && type != Sensor.TYPE_STEP_COUNTER
+                    && type != Sensor.TYPE_STEP_DETECTOR
+                    && type != 19) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (sensorStartMillis == 0L) {
+                resetSensorState();
+            }
+            double elapsedSeconds = Math.max(0d, (now - sensorStartMillis) / 1000d);
+            double frequency = currentCadence / 60d;
+            double phase = elapsedSeconds * Math.PI * 2d * frequency;
+            if (type == Sensor.TYPE_ACCELEROMETER && event.values.length >= 3) {
+                double jitterY = (Math.random() * 0.3d) - 0.15d;
+                double jitterZ = (Math.random() * 0.3d) - 0.15d;
+                event.values[0] = (float) ((Math.random() * 0.1d) - 0.05d);
+                event.values[1] = (float) (Math.cos(phase) * 1.5d + jitterY);
+                event.values[2] = (float) (9.81d
+                        + Math.sin(phase) * activeSettings.getSensorWaveAmplitude()
+                        + jitterZ);
+                long elapsedWholeSecond = (long) elapsedSeconds;
+                if (elapsedWholeSecond != lastSensorLogSecond) {
+                    lastSensorLogSecond = elapsedWholeSecond;
+                    logEvent(packageName, RootDiagnosticModule.SENSOR_INJECTION, "data_injected",
+                            "accelerometer cadence=" + Math.round(currentCadence));
+                }
+            } else if ((type == Sensor.TYPE_STEP_COUNTER || type == 19) && event.values.length >= 1) {
+                if (stepBaseOffset < 0f) {
+                    stepBaseOffset = event.values[0];
+                }
+                event.values[0] = stepBaseOffset + (float) (elapsedSeconds * frequency);
+            } else if (type == Sensor.TYPE_STEP_DETECTOR && event.values.length >= 1) {
+                event.values[0] = 1.0f;
+            }
+            event.timestamp = SystemClock.elapsedRealtimeNanos();
+        } catch (Throwable throwable) {
+            String key = listenerClassName + ":" + throwable.getClass().getName();
+            if (loggedSensorErrors.add(key)) {
+                XposedBridge.log("SchoolRunDiag sensor injection skipped for "
+                        + listenerClassName + ": " + throwable.getMessage());
+            }
+        }
+    }
+
+    private void scheduleSensorPulseLoop(String packageName) {
+        if (!isModuleActive(RootDiagnosticModule.SENSOR_INJECTION)
+                || sensorInjectionTargets.isEmpty()
+                || sensorPulseScheduled) {
+            return;
+        }
+        Handler handler = getSensorPulseHandler();
+        if (handler == null) {
+            return;
+        }
+        sensorPulseScheduled = true;
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!isModuleActive(RootDiagnosticModule.SENSOR_INJECTION)) {
+                    sensorPulseScheduled = false;
+                    return;
+                }
+                dispatchSyntheticSensorPulses(packageName);
+                Handler nextHandler = getSensorPulseHandler();
+                if (nextHandler != null) {
+                    nextHandler.postDelayed(this, 500L);
+                } else {
+                    sensorPulseScheduled = false;
+                }
+            }
+        });
+    }
+
+    private void stopSensorPulseLoop() {
+        sensorPulseScheduled = false;
+        Handler handler = sensorPulseHandler;
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
+    }
+
+    private Handler getSensorPulseHandler() {
+        if (sensorPulseHandler != null) {
+            return sensorPulseHandler;
+        }
+        try {
+            sensorPulseHandler = new Handler(Looper.getMainLooper());
+            return sensorPulseHandler;
+        } catch (Throwable throwable) {
+            return null;
+        }
+    }
+
+    private void dispatchSyntheticSensorPulses(String packageName) {
+        long now = System.currentTimeMillis();
+        if (sensorStartMillis == 0L) {
+            resetSensorState();
+        }
+        double elapsedSeconds = Math.max(0d, (now - sensorStartMillis) / 1000d);
+        double frequency = Math.max(0.1d, currentCadence / 60d);
+        long detectorIntervalMillis = Math.max(250L, Math.round(1000d / frequency));
+        for (SensorInjectionTarget target : sensorInjectionTargets.values()) {
+            int type = target.sensor.getType();
+            if (type == Sensor.TYPE_STEP_DETECTOR && now - target.lastDetectorPulseMillis < detectorIntervalMillis) {
+                continue;
+            }
+            if (type == Sensor.TYPE_STEP_DETECTOR) {
+                target.lastDetectorPulseMillis = now;
+            }
+            dispatchSyntheticSensorEvent(packageName, target, elapsedSeconds);
+        }
+    }
+
+    private void dispatchSyntheticSensorEvent(
+            String packageName,
+            SensorInjectionTarget target,
+            double elapsedSeconds
+    ) {
+        Handler targetHandler = target.handler == null ? getSensorPulseHandler() : target.handler;
+        if (targetHandler == null) {
+            return;
+        }
+        targetHandler.post(() -> {
+            try {
+                SensorEvent event = (SensorEvent) XposedHelpers.newInstance(SensorEvent.class, 1);
+                event.sensor = target.sensor;
+                event.accuracy = SensorManager.SENSOR_STATUS_ACCURACY_HIGH;
+                event.timestamp = SystemClock.elapsedRealtimeNanos();
+                int type = target.sensor.getType();
+                if (type == Sensor.TYPE_STEP_COUNTER || type == 19) {
+                    if (stepBaseOffset < 0f) {
+                        stepBaseOffset = 0f;
+                    }
+                    event.values[0] = stepBaseOffset + (float) (elapsedSeconds * (currentCadence / 60d));
+                } else if (type == Sensor.TYPE_STEP_DETECTOR) {
+                    event.values[0] = 1.0f;
+                } else {
+                    return;
+                }
+                target.listener.onSensorChanged(event);
+            } catch (Throwable throwable) {
+                String key = "synthetic:" + target.sensor.getType() + ":" + throwable.getClass().getName();
+                if (loggedSensorErrors.add(key)) {
+                    XposedBridge.log("SchoolRunDiag synthetic sensor pulse skipped: " + throwable.getMessage());
+                    logEvent(packageName, RootDiagnosticModule.SENSOR_INJECTION, "synthetic_pulse_skipped",
+                            throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+                }
+            }
+        });
     }
 
     private XC_MethodHook returnStringHook(
@@ -568,6 +768,12 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
 
     private boolean isModuleActive(RootDiagnosticModule module) {
         return active && activeModules.contains(module);
+    }
+
+    private static boolean shouldSkipPackage(String packageName) {
+        return EXCLUDED_PACKAGES.contains(packageName)
+                || packageName.startsWith("com.android.")
+                || packageName.startsWith("com.google.android.");
     }
 
     private static void resetSensorState() {
@@ -606,5 +812,18 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
 
     private interface StringSupplier {
         String get();
+    }
+
+    private static final class SensorInjectionTarget {
+        private final SensorEventListener listener;
+        private final Sensor sensor;
+        private final Handler handler;
+        private long lastDetectorPulseMillis;
+
+        private SensorInjectionTarget(SensorEventListener listener, Sensor sensor, Handler handler) {
+            this.listener = listener;
+            this.sensor = sensor;
+            this.handler = handler;
+        }
     }
 }

@@ -37,13 +37,8 @@ public final class RootFeatureRuntimeController {
             }
             if (feature == RootFeature.FRIDA_DYNAMIC_INJECTION) {
                 if (config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED) {
-                    boolean managerInstalled = appContext != null && LsposedDiagnosticBridge.isManagerInstalled(appContext);
-                    states.put(feature, managerInstalled
-                            ? RootFeatureRuntimeReport.State.LOADED
-                            : RootFeatureRuntimeReport.State.BLOCKED);
-                    messages.put(feature, managerInstalled
-                            ? "LSPosed作用域模式已准备，请在LSPosed管理器中勾选目标APK。"
-                            : "未检测到LSPosed管理器，无法进入作用域注入模式。");
+                    states.put(feature, RootFeatureRuntimeReport.State.LOADED);
+                    messages.put(feature, "LSPosed作用域模式已准备；不再检测管理器APK，目标进程启动后由LSPosed加载本模块。");
                 } else {
                     FridaInjectionGateway.ReloadResult result = fridaInjectionGateway.reload(config);
                     states.put(feature, result.isLoaded()

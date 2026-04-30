@@ -68,6 +68,9 @@
         <package android:name="com.koushikdutta.superuser" />
         <package android:name="com.thirdparty.superuser" />
         <package android:name="org.lsposed.manager" />
+        <package android:name="org.lsposed.lspd" />
+        <package android:name="io.github.libxposed.manager" />
+        <package android:name="com.android.shell" />
         <package android:name="de.robv.android.xposed.installer" />
         <package android:name="org.meowcat.edxposed.manager" />
         <package android:name="me.weishu.exp" />
@@ -78,6 +81,10 @@
         <package android:name="com.bxkj.student" />
         <package android:name="com.zjwh.android_wh_physicalfitness" />
         <package android:name="android.youma.com" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="org.lsposed.manager.LAUNCH_MANAGER" />
+        </intent>
     </queries>
 
     <application

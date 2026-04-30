@@ -9,6 +9,7 @@ import java.util.List;
 public final class RootEnvironmentReport {
     private final List<String> rootManagerPackages;
     private final List<String> suBinaryPaths;
+    private final List<String> rootShellIndicators;
     private final List<String> hookFrameworkPackages;
     private final boolean developerOptionsEnabled;
     private final boolean mockLocationAllowedForThisApp;
@@ -19,6 +20,7 @@ public final class RootEnvironmentReport {
     public RootEnvironmentReport(
             @NonNull List<String> rootManagerPackages,
             @NonNull List<String> suBinaryPaths,
+            @NonNull List<String> rootShellIndicators,
             @NonNull List<String> hookFrameworkPackages,
             boolean developerOptionsEnabled,
             boolean mockLocationAllowedForThisApp,
@@ -28,6 +30,7 @@ public final class RootEnvironmentReport {
     ) {
         this.rootManagerPackages = copy(rootManagerPackages);
         this.suBinaryPaths = copy(suBinaryPaths);
+        this.rootShellIndicators = copy(rootShellIndicators);
         this.hookFrameworkPackages = copy(hookFrameworkPackages);
         this.developerOptionsEnabled = developerOptionsEnabled;
         this.mockLocationAllowedForThisApp = mockLocationAllowedForThisApp;
@@ -44,6 +47,11 @@ public final class RootEnvironmentReport {
     @NonNull
     public List<String> getSuBinaryPaths() {
         return suBinaryPaths;
+    }
+
+    @NonNull
+    public List<String> getRootShellIndicators() {
+        return rootShellIndicators;
     }
 
     @NonNull
@@ -72,7 +80,7 @@ public final class RootEnvironmentReport {
     }
 
     public boolean hasRootIndicators() {
-        return !rootManagerPackages.isEmpty() || !suBinaryPaths.isEmpty();
+        return !rootManagerPackages.isEmpty() || !suBinaryPaths.isEmpty() || !rootShellIndicators.isEmpty();
     }
 
     public boolean hasHookFrameworkIndicators() {
@@ -80,13 +88,15 @@ public final class RootEnvironmentReport {
     }
 
     public boolean hasLsposedManager() {
-        return hookFrameworkPackages.contains(LsposedDiagnosticBridge.LSPOSED_MANAGER_PACKAGE);
+        return hookFrameworkPackages.contains(LsposedDiagnosticBridge.LSPOSED_MANAGER_PACKAGE)
+                || hookFrameworkPackages.contains(LsposedDiagnosticBridge.LSPOSED_PARASITIC_INDICATOR);
     }
 
     @NonNull
     public String summarizeForAudit() {
         return "rootManagers=" + joinOrNone(rootManagerPackages)
                 + ", suPaths=" + joinOrNone(suBinaryPaths)
+                + ", rootShell=" + joinOrNone(rootShellIndicators)
                 + ", hookFrameworks=" + joinOrNone(hookFrameworkPackages)
                 + ", developerOptions=" + developerOptionsEnabled
                 + ", mockLocationForApp=" + mockLocationAllowedForThisApp

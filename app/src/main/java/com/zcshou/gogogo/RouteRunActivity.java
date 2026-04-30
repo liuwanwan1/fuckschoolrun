@@ -1,9 +1,11 @@
 package com.acooldog.toolbox;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
@@ -205,6 +207,7 @@ public class RouteRunActivity extends BaseActivity {
     private double lastRouteDiagnosticLongitude;
     private double lastRouteDiagnosticLatitude;
     private float lastRouteDiagnosticSpeed;
+    private BroadcastReceiver rootDiagnosticStateRequestReceiver;
     private SensorManager sensorManager;
     private Sensor stepCounterSensor;
     private Sensor stepDetectorSensor;
@@ -429,6 +432,7 @@ public class RouteRunActivity extends BaseActivity {
         latestRootFeatureConfig = rootFeatureConfigStore.load();
         latestRootFeatureRuntimeReport = rootFeatureRuntimeController.reload(latestRootFeatureConfig);
         latestRootDiagnosticSettings = rootDiagnosticSettingsStore.load();
+        registerRootDiagnosticStateRequestReceiver();
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         stepCounterSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER);
         stepDetectorSensor = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR);
@@ -526,6 +530,7 @@ public class RouteRunActivity extends BaseActivity {
             RootDiagnosticSessionController.FinishResult result = rootDiagnosticSessionController.finishSession();
             appendRootAudit("目标APK诊断因页面销毁自动结束: " + result.getMessage());
         }
+        unregisterRootDiagnosticStateRequestReceiver();
         if (bound) {
             unbindService(serviceConnection);
             bound = false;
@@ -536,6 +541,48 @@ public class RouteRunActivity extends BaseActivity {
         recycleMapDescriptors();
         mapView.onDestroy();
         super.onDestroy();
+    }
+
+    private void registerRootDiagnosticStateRequestReceiver() {
+        if (rootDiagnosticStateRequestReceiver != null) {
+            return;
+        }
+        rootDiagnosticStateRequestReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null
+                        || !LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_STATE_REQUEST.equals(intent.getAction())
+                        || rootDiagnosticSessionController == null) {
+                    return;
+                }
+                String targetPackage = intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_TARGET_PACKAGE);
+                boolean replayed = rootDiagnosticSessionController.rebroadcastActiveSession(
+                        TextUtils.isEmpty(targetPackage) ? "target_process_request" : "target_process_request:" + targetPackage
+                );
+                if (replayed) {
+                    appendRootAudit("响应LSPosed目标进程状态请求: target=" + targetPackage);
+                    renderRootDiagnosticPanel();
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_STATE_REQUEST);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(rootDiagnosticStateRequestReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(rootDiagnosticStateRequestReceiver, filter);
+        }
+    }
+
+    private void unregisterRootDiagnosticStateRequestReceiver() {
+        if (rootDiagnosticStateRequestReceiver == null) {
+            return;
+        }
+        try {
+            unregisterReceiver(rootDiagnosticStateRequestReceiver);
+        } catch (Exception ignored) {
+            // Receiver may already be gone during activity teardown.
+        }
+        rootDiagnosticStateRequestReceiver = null;
     }
 
     @Override
@@ -2897,16 +2944,14 @@ public class RouteRunActivity extends BaseActivity {
         String targetPackageName = config.getTargetPackageName();
         boolean targetSelected = !TextUtils.isEmpty(targetPackageName);
         boolean lsposedMode = config.getInjectionFramework() == RootFeatureConfig.InjectionFramework.LSPOSED;
-        boolean lsposedInstalled = LsposedDiagnosticBridge.isManagerInstalled(this);
         boolean controlsUnlocked = isRootControlsUnlocked(config);
         boolean running = rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning();
 
         if (settingsRootTargetStatusView != null) {
             if (lsposedMode) {
                 settingsRootTargetStatusView.setText(getString(
-                        lsposedInstalled
-                                ? R.string.route_root_lsposed_scope_status
-                                : R.string.route_root_lsposed_missing_status,
+                        R.string.route_root_lsposed_scope_status,
+                        LsposedDiagnosticBridge.describeManagerState(this),
                         RootDiagnosticModule.summarizeEnabled(config)
                 ) + "\n" + getString(R.string.route_root_diagnostic_auto_hint));
             } else if (!targetSelected) {
@@ -2923,9 +2968,7 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (settingsRootPickTargetButton != null) {
             settingsRootPickTargetButton.setEnabled(controlsUnlocked && !running);
-            settingsRootPickTargetButton.setText(lsposedInstalled
-                    ? R.string.route_root_open_lsposed_scope_button
-                    : R.string.route_root_lsposed_missing_button);
+            settingsRootPickTargetButton.setText(R.string.route_root_open_lsposed_scope_button);
         }
         if (settingsRootCompatibilityStatusView != null) {
             settingsRootCompatibilityStatusView.setText(
@@ -2986,15 +3029,6 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
             GoUtils.DisplayToast(this, "诊断运行中，结束路线模拟后再修改LSPosed作用域。");
-            return;
-        }
-        if (!LsposedDiagnosticBridge.isManagerInstalled(this)) {
-            new AlertDialog.Builder(this)
-                    .setTitle(R.string.route_root_lsposed_missing_title)
-                    .setMessage(R.string.route_root_lsposed_missing_message)
-                    .setPositiveButton(R.string.route_link_settings_confirm, null)
-                    .show();
-            appendRootAudit("打开LSPosed作用域失败: managerInstalled=false");
             return;
         }
         if (rootFeatureConfigStore != null) {
@@ -3228,6 +3262,10 @@ public class RouteRunActivity extends BaseActivity {
             rootDiagnosticSettingsStore.save(settings);
         }
         appendRootAudit("更新目标APK诊断模块设置: " + settings.toJson());
+        if (rootDiagnosticSessionController != null
+                && rootDiagnosticSessionController.updateActiveSettings(settings)) {
+            appendRootAudit("已同步运行中的LSPosed诊断模块设置。");
+        }
         renderRootDiagnosticPanel();
         GoUtils.DisplayToast(this, "模块设置已保存。");
     }
@@ -3271,10 +3309,6 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (!lsposedMode && TextUtils.isEmpty(config.getTargetPackageName())) {
             GoUtils.DisplayToast(this, getString(R.string.route_root_diagnostic_need_target));
-            return;
-        }
-        if (lsposedMode && !LsposedDiagnosticBridge.isManagerInstalled(this)) {
-            GoUtils.DisplayToast(this, getString(R.string.route_root_lsposed_missing_status, ""));
             return;
         }
         if (!rootTestSessionConfirmed || (!lsposedMode && !rootShellAuthorized)) {
@@ -3386,10 +3420,6 @@ public class RouteRunActivity extends BaseActivity {
                 || (!lsposedMode && TextUtils.isEmpty(config.getTargetPackageName()))
                 || !config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
                 || RootDiagnosticModule.enabledIn(config).isEmpty()) {
-            return;
-        }
-        if (lsposedMode && !LsposedDiagnosticBridge.isManagerInstalled(this)) {
-            GoUtils.DisplayToast(this, "目标APK诊断未启动：未检测到LSPosed管理器。");
             return;
         }
         if (!rootTestSessionConfirmed || (!lsposedMode && !rootShellAuthorized)) {
@@ -3556,7 +3586,8 @@ public class RouteRunActivity extends BaseActivity {
             settingsRootStatusView.setText(status + "\n" + getString(
                     R.string.route_root_status_detail,
                     joinListForDisplay(report.getRootManagerPackages()),
-                    joinListForDisplay(report.getSuBinaryPaths())
+                    joinListForDisplay(report.getSuBinaryPaths()),
+                    joinListForDisplay(report.getRootShellIndicators())
             ));
         }
         if (settingsRootHiddenStatusView != null) {

@@ -66,9 +66,6 @@ public final class RootDiagnosticSessionController {
         if (!config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)) {
             return new StartResult(false, "", "请先开启注入框架开关。", null);
         }
-        if (lsposedMode && !LsposedDiagnosticBridge.isManagerInstalled(appContext)) {
-            return new StartResult(false, "", "未检测到LSPosed管理器，请先安装并启用LSPosed。", null);
-        }
         List<RootDiagnosticModule> modules = RootDiagnosticModule.enabledIn(config);
         if (modules.isEmpty()) {
             return new StartResult(false, "", "请至少开启一个诊断模块。", null);
@@ -224,6 +221,32 @@ public final class RootDiagnosticSessionController {
 
     public synchronized boolean isRunning() {
         return !activeSessionId.isEmpty();
+    }
+
+    public synchronized boolean rebroadcastActiveSession(@NonNull String reason) {
+        if (!isRunning() || activeInjectionFramework != RootFeatureConfig.InjectionFramework.LSPOSED) {
+            return false;
+        }
+        LsposedDiagnosticBridge.broadcastStart(appContext, activeSessionId, activeModules, activeSettings);
+        recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_broadcast_start_replay",
+                "已重播LSPosed诊断状态：" + reason);
+        return true;
+    }
+
+    public synchronized boolean updateActiveSettings(@NonNull RootDiagnosticSettings settings) {
+        if (!isRunning()) {
+            return false;
+        }
+        activeSettings = settings;
+        if (activeInjectionFramework == RootFeatureConfig.InjectionFramework.LSPOSED) {
+            LsposedDiagnosticBridge.broadcastUpdateSettings(appContext, activeSessionId, activeSettings);
+            recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_broadcast_settings",
+                    "已广播LSPosed诊断设置更新。");
+            return true;
+        }
+        recordEvent(RootDiagnosticEvent.MODULE_FRAMEWORK, "settings_updated",
+                "诊断设置已更新，Frida模式需重启会话后生效。");
+        return true;
     }
 
     public synchronized void syncRouteLocation(double longitude, double latitude, float speedMetersPerSecond) {

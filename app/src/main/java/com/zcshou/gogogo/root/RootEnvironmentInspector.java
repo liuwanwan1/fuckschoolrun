@@ -25,14 +25,20 @@ public final class RootEnvironmentInspector {
             "com.topjohnwu.magisk",
             "io.github.huskydg.magisk",
             "me.weishu.kernelsu",
+            "io.github.rifsxd.ksunext",
+            "me.bmax.apatch",
             "eu.chainfire.supersu",
             "com.noshufou.android.su",
             "com.koushikdutta.superuser",
-            "com.thirdparty.superuser"
+            "com.thirdparty.superuser",
+            "com.kingroot.kinguser",
+            "com.kingo.root"
     };
 
     private static final String[] HOOK_FRAMEWORK_PACKAGES = new String[] {
             "org.lsposed.manager",
+            "org.lsposed.lspd",
+            "io.github.libxposed.manager",
             "de.robv.android.xposed.installer",
             "org.meowcat.edxposed.manager",
             "me.weishu.exp",
@@ -46,8 +52,12 @@ public final class RootEnvironmentInspector {
             "/sbin/su",
             "/su/bin/su",
             "/vendor/bin/su",
+            "/odm/bin/su",
+            "/product/bin/su",
+            "/debug_ramdisk/su",
             "/system/bin/.ext/su",
-            "/system/usr/we-need-root/su"
+            "/system/usr/we-need-root/su",
+            "/sys/kernel/security/ksu"
     };
 
     private final Context appContext;
@@ -61,13 +71,15 @@ public final class RootEnvironmentInspector {
         List<String> rootManagers = detectInstalledPackages(ROOT_MANAGER_PACKAGES);
         List<String> hookFrameworks = detectInstalledPackages(HOOK_FRAMEWORK_PACKAGES);
         List<String> suPaths = detectExistingPaths(SU_BINARY_PATHS);
+        List<String> rootShellIndicators = detectRootShellIndicators();
         boolean developerOptionsEnabled = isDeveloperOptionsEnabled();
         boolean mockLocationAllowed = isCurrentAppMockLocationAllowed();
         boolean legacyMockLocationEnabled = isLegacyMockLocationEnabled();
-        boolean hiddenRootLikely = !rootManagers.isEmpty() && suPaths.isEmpty();
+        boolean hiddenRootLikely = (!rootManagers.isEmpty() || !rootShellIndicators.isEmpty()) && suPaths.isEmpty();
         return new RootEnvironmentReport(
                 rootManagers,
                 suPaths,
+                rootShellIndicators,
                 hookFrameworks,
                 developerOptionsEnabled,
                 mockLocationAllowed,
@@ -92,6 +104,41 @@ public final class RootEnvironmentInspector {
             return new RootShellProbeResult(exitCode == 0, false, exitCode, output);
         } catch (Exception exception) {
             return new RootShellProbeResult(false, false, -1, exception.getClass().getSimpleName() + ": " + exception.getMessage());
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
+
+    @NonNull
+    private List<String> detectRootShellIndicators() {
+        List<String> indicators = new ArrayList<>();
+        ShellCommandResult whichSu = runShellCommand(new String[] {
+                "sh",
+                "-c",
+                "command -v su 2>/dev/null || which su 2>/dev/null"
+        }, 2L);
+        if (whichSu.finished && whichSu.exitCode == 0 && !whichSu.output.trim().isEmpty()) {
+            indicators.add("PATH:" + firstLine(whichSu.output));
+        }
+        return indicators;
+    }
+
+    @NonNull
+    private ShellCommandResult runShellCommand(@NonNull String[] command, long timeoutSeconds) {
+        java.lang.Process process = null;
+        try {
+            process = Runtime.getRuntime().exec(command);
+            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroy();
+                return new ShellCommandResult(false, -1, "command timed out");
+            }
+            String output = (readFully(process.getInputStream()) + readFully(process.getErrorStream())).trim();
+            return new ShellCommandResult(true, process.exitValue(), output);
+        } catch (Exception exception) {
+            return new ShellCommandResult(false, -1, exception.getClass().getSimpleName() + ": " + exception.getMessage());
         } finally {
             if (process != null) {
                 process.destroy();
@@ -182,6 +229,13 @@ public final class RootEnvironmentInspector {
     }
 
     @NonNull
+    private static String firstLine(@NonNull String value) {
+        String trimmed = value.trim();
+        int newline = trimmed.indexOf('\n');
+        return newline >= 0 ? trimmed.substring(0, newline) : trimmed;
+    }
+
+    @NonNull
     private String readFully(@NonNull InputStream stream) throws Exception {
         StringBuilder builder = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
@@ -194,5 +248,17 @@ public final class RootEnvironmentInspector {
             }
         }
         return builder.toString();
+    }
+
+    private static final class ShellCommandResult {
+        private final boolean finished;
+        private final int exitCode;
+        private final String output;
+
+        private ShellCommandResult(boolean finished, int exitCode, @NonNull String output) {
+            this.finished = finished;
+            this.exitCode = exitCode;
+            this.output = output;
+        }
     }
 }
