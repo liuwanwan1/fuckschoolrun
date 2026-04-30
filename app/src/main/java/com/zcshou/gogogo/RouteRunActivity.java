@@ -159,6 +159,7 @@ public class RouteRunActivity extends BaseActivity {
     private static final int MAX_EDITABLE_ROUTE_VERTICES = 24;
     private static final double ROUTE_INSERT_MAX_DISTANCE_METERS = 20d;
     private static final float ROUTE_INSERT_SCREEN_HIT_SLOP_DP = 28f;
+    private static final long ROOT_ACCESS_POLICY_REFRESH_INTERVAL_MILLIS = 10000L;
     private static final int ANDROID_9_API = 28;
     private static final int ANDROID_13_API = 33;
 
@@ -216,6 +217,7 @@ public class RouteRunActivity extends BaseActivity {
     private volatile AppClientConfig latestAppClientConfig = AppClientConfig.defaults();
     private boolean rootTestSessionConfirmed;
     private boolean rootShellAuthorized;
+    private boolean rootAccessPolicyRefreshInFlight;
     private boolean suppressRootFeatureSwitchCallbacks;
     private boolean lastRouteDiagnosticLocationAvailable;
     private double lastRouteDiagnosticLongitude;
@@ -234,6 +236,7 @@ public class RouteRunActivity extends BaseActivity {
     private PendingMotion pendingMotion;
     private long lastHandledCompletionToken = -1L;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable rootAccessPolicyRefreshRunnable = () -> refreshRootAccessPolicyForActiveSession(true);
     private Ringtone activeReminderRingtone;
     private FrameLayout simulationSettingsOverlay;
     private FrameLayout simulationSettingsContentFrame;
@@ -529,6 +532,7 @@ public class RouteRunActivity extends BaseActivity {
             completionNoticePending = true;
         }
         showPendingCompletionNoticeIfPossible();
+        scheduleRootAccessPolicyRefreshIfNeeded();
     }
 
     @Override
@@ -562,6 +566,7 @@ public class RouteRunActivity extends BaseActivity {
         stopReminderFeedback();
         hideSimulationSettingsOverlay();
         mainHandler.removeCallbacks(showFloatingWindowRetryRunnable);
+        mainHandler.removeCallbacks(rootAccessPolicyRefreshRunnable);
         completionNoticePending = false;
         hideCompletionOverlay();
         removeFloatingWindow();
@@ -1147,6 +1152,7 @@ public class RouteRunActivity extends BaseActivity {
             );
             dispatchPendingSimulationNfcPayloadIfNeeded();
             maybeStartRootDiagnosticForSimulation();
+            scheduleRootAccessPolicyRefreshIfNeeded();
             renderToggleButtonState();
             GoUtils.DisplayToast(this, getString(
                     resumeCurrentRoute ? R.string.route_simulation_resumed : R.string.route_simulation_started
@@ -3362,6 +3368,7 @@ public class RouteRunActivity extends BaseActivity {
         simulationSettingsHomeScrollY = 0;
         simulationSettingsActiveSaveAction = null;
         clearSimulationSettingsViewReferences();
+        scheduleRootAccessPolicyRefreshIfNeeded();
     }
 
     private void clearSimulationSettingsViewReferences() {
@@ -4881,9 +4888,21 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private void refreshInternalAccountProfileForRootGate() {
+        refreshRootAccessPolicyForActiveSession(true);
+    }
+
+    private void refreshRootAccessPolicyForActiveSession(boolean scheduleNext) {
         if (ioExecutor == null || ioExecutor.isShutdown()) {
             return;
         }
+        if (rootAccessPolicyRefreshInFlight) {
+            if (scheduleNext) {
+                scheduleRootAccessPolicyRefreshIfNeeded();
+            }
+            return;
+        }
+        boolean wasAllowedBefore = isInternalRootTestingEnabled();
+        rootAccessPolicyRefreshInFlight = true;
         InternalAuthStore authStore = new InternalAuthStore(getApplicationContext());
         String token = authStore.getToken();
         ioExecutor.execute(() -> {
@@ -4907,14 +4926,65 @@ public class RouteRunActivity extends BaseActivity {
             }
             AppClientConfig finalRefreshedConfig = refreshedConfig;
             runOnUiThread(() -> {
+                rootAccessPolicyRefreshInFlight = false;
                 if (finalRefreshedConfig != null) {
                     latestAppClientConfig = finalRefreshedConfig;
                 }
-                if (renderRootAccessGate()) {
+                boolean allowedNow = renderRootAccessGate();
+                if (!allowedNow && (wasAllowedBefore || isRootAccessCurrentlyEngaged())) {
+                    revokeRootAccessDueToPolicyChange();
+                } else if (allowedNow) {
                     renderRootEnvironmentReport();
+                }
+                if (scheduleNext) {
+                    scheduleRootAccessPolicyRefreshIfNeeded();
                 }
             });
         });
+    }
+
+    private void scheduleRootAccessPolicyRefreshIfNeeded() {
+        mainHandler.removeCallbacks(rootAccessPolicyRefreshRunnable);
+        if (shouldMonitorRootAccessPolicy()) {
+            mainHandler.postDelayed(rootAccessPolicyRefreshRunnable, ROOT_ACCESS_POLICY_REFRESH_INTERVAL_MILLIS);
+        }
+    }
+
+    private boolean shouldMonitorRootAccessPolicy() {
+        if (!BuildConfig.INTERNAL_ROOT_TESTING_ENABLED || isFinishing() || isDestroyed()) {
+            return false;
+        }
+        return simulationSettingsOverlay != null || isRootAccessCurrentlyEngaged();
+    }
+
+    private boolean isRootAccessCurrentlyEngaged() {
+        return rootTestSessionConfirmed
+                || rootShellAuthorized
+                || (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning())
+                || (Boolean.TRUE.equals(viewModel.isRunning().getValue()) && isRootLocationSimulationSelected());
+    }
+
+    private void revokeRootAccessDueToPolicyChange() {
+        if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
+            RootDiagnosticSessionController.FinishResult result = rootDiagnosticSessionController.finishSession();
+            appendRootAudit("后端Root授权策略已收回，目标APK诊断自动结束: " + result.getMessage());
+        }
+        if (Boolean.TRUE.equals(viewModel.isRunning().getValue()) && isRootLocationSimulationSelected()) {
+            stopLinkedSimulationState();
+            hideFloatingWindow();
+            viewModel.pauseSimulation();
+            renderToggleButtonState();
+            updateFloatingWindowControlsState();
+            appendRootAudit("后端Root授权策略已收回，Root方案路线模拟自动暂停。");
+        }
+        rootTestSessionConfirmed = false;
+        rootShellAuthorized = false;
+        renderRootAccessGate();
+        renderRootFeatureConfig();
+        renderRootDiagnosticPanel();
+        updateRootAuthorizationStatus(null);
+        updateRootAuditLog();
+        GoUtils.DisplayToast(this, getString(R.string.route_root_policy_revoked));
     }
 
     private boolean renderRootAccessGate() {
@@ -4952,6 +5022,7 @@ public class RouteRunActivity extends BaseActivity {
                     enableDefaultRootModulesForRouteTakeover();
                     appendRootAudit("确认Root测试会话");
                     renderRootEnvironmentReport();
+                    scheduleRootAccessPolicyRefreshIfNeeded();
                 })
                 .setNegativeButton(R.string.route_link_settings_cancel, null)
                 .show();

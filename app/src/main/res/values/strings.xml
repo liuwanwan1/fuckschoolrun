@@ -377,6 +377,7 @@
     <string name="route_root_request_su_title">请求Root授权</string>
     <string name="route_root_request_su_message">系统可能弹出Root授权。本次先执行 su -c id 确认授权状态；LSPosed模式下目标APK由作用域选择限定。</string>
     <string name="route_root_need_internal">当前身份未在后端Root测试名单中，请联系管理员调整可用账号类型。</string>
+    <string name="route_root_policy_revoked">后端已收回当前身份的Root测试权限，本次Root会话已停止。</string>
     <string name="route_root_need_session_confirm">请先确认本次Root测试会话。</string>
     <string name="route_root_no_root_switch_hint">未检测到Root迹象，已建议切换到非Root模式。</string>
     <string name="route_root_hidden_normal">隐藏Root状态：未发现Root隐藏迹象。</string>
