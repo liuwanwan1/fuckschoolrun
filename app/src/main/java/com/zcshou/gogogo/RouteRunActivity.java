@@ -223,7 +223,13 @@ public class RouteRunActivity extends BaseActivity {
     private long lastHandledCompletionToken = -1L;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Ringtone activeReminderRingtone;
-    private AlertDialog simulationSettingsDialog;
+    private FrameLayout simulationSettingsOverlay;
+    private FrameLayout simulationSettingsContentFrame;
+    private TextView simulationSettingsTitleView;
+    private Button simulationSettingsPrimaryButton;
+    private View simulationSettingsFormView;
+    private boolean simulationSettingsSubPageVisible;
+    private RootSettingsSaveAction simulationSettingsActiveSaveAction;
     private TextView settingsReminderToneView;
     private TextView settingsNonRootTabView;
     private TextView settingsRootTabView;
@@ -527,9 +533,19 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     @Override
+    public void onBackPressed() {
+        if (simulationSettingsOverlay != null) {
+            handleSimulationSettingsBack();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    @Override
     protected void onDestroy() {
         stopRealRunSensorListener();
         stopReminderFeedback();
+        hideSimulationSettingsOverlay();
         mainHandler.removeCallbacks(showFloatingWindowRetryRunnable);
         completionNoticePending = false;
         hideCompletionOverlay();
@@ -2215,6 +2231,10 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private void showSimulationSettingsDialog() {
+        if (simulationSettingsOverlay != null) {
+            showSimulationSettingsHomePage();
+            return;
+        }
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_route_simulation_settings, null);
         settingsLinkRatioLeftInput = dialogView.findViewById(R.id.et_dialog_link_ratio_left);
         settingsLinkRatioRightInput = dialogView.findViewById(R.id.et_dialog_link_ratio_right);
@@ -2514,105 +2534,653 @@ public class RouteRunActivity extends BaseActivity {
         refreshInternalAccountProfileForRootGate();
         refreshRootEnvironmentReport(false);
 
-        simulationSettingsDialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.route_link_settings_title)
-                .setView(dialogView)
-                .setPositiveButton(R.string.route_link_settings_confirm, null)
-                .setNegativeButton(R.string.route_link_settings_cancel, (dialog, which) -> stopReminderFeedback())
-                .create();
-        simulationSettingsDialog.setOnShowListener(ignored -> {
-            simulationSettingsDialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                    .setOnClickListener(v -> saveSimulationSettings());
-            resizeDialogWindow(simulationSettingsDialog, 0.86f, 0.78f);
-            setupSimulationSettingsNavigator(dialogView);
-        });
-        simulationSettingsDialog.setOnDismissListener(dialog -> {
-            if (rootFeatureConfigStore != null) {
-                rootFeatureConfigStore.unregisterListener(rootFeatureConfigListener);
+        simulationSettingsFormView = dialogView;
+        setupSimulationSettingsNavigator(dialogView);
+        showSimulationSettingsOverlay();
+        showSimulationSettingsHomePage();
+    }
+
+    private void showSimulationSettingsOverlay() {
+        if (simulationSettingsOverlay != null) {
+            return;
+        }
+        simulationSettingsOverlay = new FrameLayout(this);
+        simulationSettingsOverlay.setBackgroundColor(Color.parseColor("#F5F7FA"));
+        simulationSettingsOverlay.setClickable(true);
+        simulationSettingsOverlay.setFocusable(true);
+
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setBackgroundColor(Color.parseColor("#F5F7FA"));
+        simulationSettingsOverlay.addView(shell, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setPadding(Math.round(dp(8f)), 0, Math.round(dp(12f)), 0);
+        toolbar.setBackgroundColor(Color.WHITE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            toolbar.setElevation(dp(2f));
+        }
+        shell.addView(toolbar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                Math.round(dp(56f))
+        ));
+
+        ImageButton backButton = new ImageButton(this);
+        backButton.setImageResource(android.R.drawable.ic_menu_revert);
+        backButton.setBackgroundColor(Color.TRANSPARENT);
+        backButton.setContentDescription("返回路线模拟");
+        backButton.setOnClickListener(v -> handleSimulationSettingsBack());
+        toolbar.addView(backButton, new LinearLayout.LayoutParams(
+                Math.round(dp(44f)),
+                Math.round(dp(44f))
+        ));
+
+        simulationSettingsTitleView = new TextView(this);
+        simulationSettingsTitleView.setText(R.string.route_link_settings_title);
+        simulationSettingsTitleView.setTextColor(Color.parseColor("#1F2A37"));
+        simulationSettingsTitleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f);
+        simulationSettingsTitleView.setGravity(Gravity.CENTER_VERTICAL);
+        simulationSettingsTitleView.setSingleLine(true);
+        simulationSettingsTitleView.setEllipsize(TextUtils.TruncateAt.END);
+        toolbar.addView(simulationSettingsTitleView, new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f
+        ));
+
+        simulationSettingsContentFrame = new FrameLayout(this);
+        shell.addView(simulationSettingsContentFrame, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+        ));
+
+        simulationSettingsPrimaryButton = new Button(this);
+        simulationSettingsPrimaryButton.setText(R.string.route_link_settings_confirm);
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        buttonParams.setMargins(
+                Math.round(dp(16f)),
+                Math.round(dp(8f)),
+                Math.round(dp(16f)),
+                Math.round(dp(12f))
+        );
+        shell.addView(simulationSettingsPrimaryButton, buttonParams);
+
+        addContentView(simulationSettingsOverlay, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+    }
+
+    private void showSimulationSettingsHomePage() {
+        if (simulationSettingsContentFrame == null) {
+            return;
+        }
+        simulationSettingsSubPageVisible = false;
+        simulationSettingsActiveSaveAction = null;
+        if (simulationSettingsTitleView != null) {
+            simulationSettingsTitleView.setText(R.string.route_link_settings_title);
+        }
+        if (simulationSettingsPrimaryButton != null) {
+            simulationSettingsPrimaryButton.setVisibility(View.VISIBLE);
+            simulationSettingsPrimaryButton.setText(R.string.route_link_settings_confirm);
+            simulationSettingsPrimaryButton.setOnClickListener(v -> saveSimulationSettings());
+        }
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(false);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        int horizontalPadding = Math.round(dp(16f));
+        page.setPadding(horizontalPadding, Math.round(dp(14f)), horizontalPadding, Math.round(dp(24f)));
+        scrollView.addView(page, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+
+        EditText searchInput = new EditText(this);
+        searchInput.setSingleLine(true);
+        searchInput.setHint(R.string.route_settings_search_hint);
+        searchInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+        page.addView(searchInput, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        List<SimulationSettingsHomeRow> rows = new ArrayList<>();
+        TextView nonRootCategory = addSimulationSettingsCategory(page, getString(R.string.route_settings_tab_non_root));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "联动比例",
+                prefsStore.getRouteLinkRatioNumerator() + " : " + safeText(speedInput),
+                "联动 比例 link ratio",
+                v -> showSimulationSettingsFormPage("联动比例", false, R.id.section_settings_link));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "步数换算",
+                "每米 " + prefsStore.getRouteStepsPerMeter() + " 步",
+                "步数 步频 米数 steps",
+                v -> showSimulationSettingsFormPage("步数换算", false, R.id.section_settings_steps));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "循环次数",
+                safeText(loopInput) + " 次",
+                "循环 次数 loop",
+                v -> showSimulationSettingsFormPage("循环次数", false, R.id.section_settings_loop));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "定位信号",
+                "卫星 " + prefsStore.getNmeaSatelliteCount()
+                        + " · HDOP " + String.format(Locale.US, "%.2f", prefsStore.getNmeaHdop()),
+                "NMEA GPS 卫星 信号 精度 更新 interval",
+                v -> showSimulationSettingsFormPage("定位信号", false, R.id.section_settings_nmea));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "速度强度浮动",
+                stateText(speedFloatCheckBox != null && speedFloatCheckBox.isChecked())
+                        + " · 范围 " + prefsStore.getRouteIntensityVariationRange(),
+                "强度 浮动 dynamic intensity",
+                v -> showSimulationSettingsFormPage("速度强度浮动", false, R.id.section_settings_dynamic));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "路线自然偏移",
+                stateText(prefsStore.isRouteNaturalPathVariationEnabled())
+                        + " · " + prefsStore.getRoutePathVariationAmplitude() + " 米",
+                "路径 自然 path",
+                v -> showSimulationSettingsFormPage("路线自然偏移", false, R.id.section_settings_path));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "海拔与身高基线",
+                prefsStore.getRouteAltitudeBaseMeters() + " 米 · 身高 "
+                        + prefsStore.getRouteAltitudeVariationHeightCm() + " cm",
+                "海拔 身高 altitude height",
+                v -> showSimulationSettingsFormPage("海拔与身高基线", false, R.id.section_settings_altitude));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "悬浮窗",
+                stateText(prefsStore.isRouteFloatingWindowEnabled()),
+                "悬浮窗 floating overlay",
+                v -> showSimulationSettingsFormPage("悬浮窗", false, R.id.section_settings_floating));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "提醒铃声",
+                resolveReminderToneTitle(),
+                "铃声 提醒 ringtone",
+                v -> showSimulationSettingsFormPage("提醒铃声", false, R.id.section_settings_ringtone));
+        addSimulationSettingsEntry(page, rows, nonRootCategory,
+                "共享设置",
+                "上传或下载模拟设置",
+                "共享 上传 下载 share",
+                v -> showSimulationSettingsFormPage("共享设置", false, R.id.section_settings_share));
+
+        if (isInternalRootTestingEnabled()) {
+            TextView rootCategory = addSimulationSettingsCategory(page, getString(R.string.route_settings_tab_root));
+            addRootSettingsDropdown(page);
+            addSimulationSettingsEntry(page, rows, rootCategory,
+                    "Root授权",
+                    rootModeHomeSummary(),
+                    "Root 授权 检测",
+                    v -> showSimulationSettingsFormPage("Root授权", true, R.id.section_settings_root_auth));
+            if (isRootControlsUnlocked()) {
+                addSimulationSettingsEntry(page, rows, rootCategory,
+                        "环境状态",
+                        "隐藏Root、开发者选项、模拟位置和Hook环境",
+                        "Root 环境 开发者 模拟位置 Hook",
+                        v -> showSimulationSettingsFormPage("环境状态", true, R.id.section_settings_root_environment));
+                addSimulationSettingsEntry(page, rows, rootCategory,
+                        "作用域与诊断状态",
+                        "LSPosed作用域、模块开关、兼容性和诊断事件",
+                        "Root LSPosed 作用域 目标 诊断 模块",
+                        v -> showSimulationSettingsFormPage("作用域与诊断状态", true, R.id.section_settings_root_restricted));
+                addRootModuleHomeEntry(page, rows, rootCategory, RootDiagnosticModule.LOCATION_NMEA);
+                addRootModuleHomeEntry(page, rows, rootCategory, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
+                addRootModuleHomeEntry(page, rows, rootCategory, RootDiagnosticModule.DETECTION_BYPASS);
+                addRootModuleHomeEntry(page, rows, rootCategory, RootDiagnosticModule.TARGET_APP_HOOK);
+                addRootModuleHomeEntry(page, rows, rootCategory, RootDiagnosticModule.SERVICE_STREAM);
+                addRootModuleHomeEntry(page, rows, rootCategory, RootDiagnosticModule.SENSOR_INJECTION);
+                addSimulationSettingsEntry(page, rows, rootCategory,
+                        getString(R.string.route_algorithm_lab_title),
+                        getString(R.string.route_algorithm_lab_summary),
+                        "算法 验证 实验室 步频 GPS 传感器",
+                        v -> showSimulationSettingsFormPage(getString(R.string.route_algorithm_lab_title), true,
+                                R.id.section_settings_algorithm_lab));
+                addSimulationSettingsEntry(page, rows, rootCategory,
+                        getString(R.string.route_root_audit_title),
+                        "查看Root诊断审计日志",
+                        "审计 日志 audit log",
+                        v -> showSimulationSettingsFormPage(getString(R.string.route_root_audit_title), true,
+                                R.id.section_settings_root_logs));
             }
-            stopReminderFeedback();
-            simulationSettingsDialog = null;
-            settingsLinkRatioLeftInput = null;
-            settingsLinkRatioRightInput = null;
-            settingsStepsPerMeterInput = null;
-            settingsLoopInput = null;
-            settingsSatelliteSeekBar = null;
-            settingsSatelliteValueView = null;
-            settingsSignalQualityGroup = null;
-            settingsHdopSeekBar = null;
-            settingsHdopValueView = null;
-            settingsUpdateIntervalSeekBar = null;
-            settingsUpdateIntervalValueView = null;
-            settingsNetworkSimulationSwitch = null;
-            settingsDynamicIntensitySwitch = null;
-            settingsIntensityRangeInput = null;
-            settingsIntensityFrequencySeekBar = null;
-            settingsIntensityFrequencyValueView = null;
-            settingsPathVariationSwitch = null;
-            settingsPathVariationInput = null;
-            settingsAltitudeVariationSwitch = null;
-            settingsAltitudeBaseInput = null;
-            settingsAltitudeVariationRangeInput = null;
-            settingsAltitudeHeightInput = null;
-            settingsAltitudeProbabilitySeekBar = null;
-            settingsAltitudeProbabilityValueView = null;
-            settingsFloatingWindowSwitch = null;
-            settingsFloatingWindowScaleSeekBar = null;
-            settingsFloatingWindowButtonSizeSeekBar = null;
-            settingsFloatingWindowScaleView = null;
-            settingsFloatingWindowButtonSizeView = null;
-            settingsFloatingWindowPreview = null;
-            settingsReminderToneView = null;
-            settingsNonRootTabView = null;
-            settingsRootTabView = null;
-            settingsRootContainer = null;
-            settingsRootEnvironmentSection = null;
-            settingsRootRestrictedSection = null;
-            settingsRootAlgorithmLabSection = null;
-            settingsRootLogsSection = null;
-            settingsRootInternalStatusView = null;
-            settingsRootModeStatusView = null;
-            settingsRootStatusView = null;
-            settingsRootAuthorizationStatusView = null;
-            settingsRootHiddenStatusView = null;
-            settingsRootDeveloperStatusView = null;
-            settingsRootMockStatusView = null;
-            settingsRootHookStatusView = null;
-            settingsRootTargetStatusView = null;
-            settingsRootCompatibilityStatusView = null;
-            settingsRootFeatureConfigStatusView = null;
-            settingsRootDiagnosticLogView = null;
-            settingsRootAuditLogView = null;
-            settingsRootRefreshButton = null;
-            settingsRootConfirmSessionButton = null;
-            settingsRootRequestSuButton = null;
-            settingsRootPickTargetButton = null;
-            settingsRootNmeaSettingsButton = null;
-            settingsRootSignalSettingsButton = null;
-            settingsRootBypassSettingsButton = null;
-            settingsRootHookSettingsButton = null;
-            settingsRootServiceSettingsButton = null;
-            settingsRootSensorSettingsButton = null;
-            settingsRootReloadConfigButton = null;
-            settingsRootGenerateGmButton = null;
-            settingsAlgorithmLabButton = null;
-            settingsTestInstructionStudioButton = null;
-            settingsScenarioLibraryButton = null;
-            settingsPressureLabButton = null;
-            settingsRootModeSwitch = null;
-            settingsRootEnvironmentSwitch = null;
-            settingsRootSuProbeSwitch = null;
-            settingsRootEncryptedAuditSwitch = null;
-            settingsRootGmInterfaceSwitch = null;
-            settingsRootFridaInjectionSwitch = null;
-            settingsRootNmeaSwitch = null;
-            settingsRootSignalSwitch = null;
-            settingsRootBypassSwitch = null;
-            settingsRootHookSwitch = null;
-            settingsRootServiceLogSwitch = null;
-            settingsRootSensorSwitch = null;
+        }
+
+        searchInput.addTextChangedListener(new SimpleTextWatcher() {
+            @Override
+            public void afterTextChanged(Editable editable) {
+                filterSimulationSettingsHomeRows(rows, editable == null ? "" : editable.toString());
+            }
         });
-        simulationSettingsDialog.show();
+        setSimulationSettingsContent(scrollView);
+    }
+
+    @NonNull
+    private String safeText(@Nullable TextView textView) {
+        if (textView == null || textView.getText() == null) {
+            return "";
+        }
+        return textView.getText().toString().trim();
+    }
+
+    @NonNull
+    private String rootModeHomeSummary() {
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        if (!isRootDetectedForRootMode()) {
+            return getString(R.string.route_root_mode_need_root);
+        }
+        return config.isRootModeEnabled()
+                ? getString(R.string.route_root_mode_enabled_hint)
+                : getString(R.string.route_root_mode_locked_hint);
+    }
+
+    private TextView addSimulationSettingsCategory(@NonNull LinearLayout page, @NonNull String title) {
+        TextView category = new TextView(this);
+        category.setText(title);
+        category.setTextColor(Color.parseColor("#607085"));
+        category.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        category.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.topMargin = Math.round(dp(16f));
+        page.addView(category, params);
+        return category;
+    }
+
+    private void addSimulationSettingsEntry(
+            @NonNull LinearLayout page,
+            @NonNull List<SimulationSettingsHomeRow> rows,
+            @NonNull View category,
+            @NonNull String title,
+            @NonNull String summary,
+            @NonNull String keywords,
+            @NonNull View.OnClickListener listener
+    ) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(
+                Math.round(dp(12f)),
+                Math.round(dp(10f)),
+                Math.round(dp(10f)),
+                Math.round(dp(10f))
+        );
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(8f));
+        background.setStroke(Math.round(dp(1f)), Color.parseColor("#DDE4EE"));
+        row.setBackground(background);
+        row.setOnClickListener(listener);
+
+        LinearLayout textColumn = new LinearLayout(this);
+        textColumn.setOrientation(LinearLayout.VERTICAL);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextColor(Color.parseColor("#1F2A37"));
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
+        TextView summaryView = new TextView(this);
+        summaryView.setText(summary);
+        summaryView.setTextColor(Color.parseColor("#607085"));
+        summaryView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        summaryView.setMaxLines(2);
+        summaryView.setEllipsize(TextUtils.TruncateAt.END);
+        textColumn.addView(titleView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        textColumn.addView(summaryView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        row.addView(textColumn, new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        ));
+
+        TextView arrowView = new TextView(this);
+        arrowView.setText(">");
+        arrowView.setTextColor(Color.parseColor("#8A97A8"));
+        arrowView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f);
+        arrowView.setGravity(Gravity.CENTER);
+        row.addView(arrowView, new LinearLayout.LayoutParams(
+                Math.round(dp(28f)),
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        rowParams.topMargin = Math.round(dp(8f));
+        page.addView(row, rowParams);
+        rows.add(new SimulationSettingsHomeRow(row, category, title + " " + summary + " " + keywords));
+    }
+
+    private void addRootModuleHomeEntry(
+            @NonNull LinearLayout page,
+            @NonNull List<SimulationSettingsHomeRow> rows,
+            @NonNull View category,
+            @NonNull RootDiagnosticModule module
+    ) {
+        RootDiagnosticSettings settings = latestRootDiagnosticSettings == null
+                ? RootDiagnosticSettings.defaults()
+                : latestRootDiagnosticSettings;
+        RootFeature feature = rootFeatureForModule(module);
+        String enabledText = feature == null ? "" : stateText(isRootFeatureEnabled(feature)) + " · ";
+        addSimulationSettingsEntry(page, rows, category,
+                module.getTitle(),
+                enabledText + settings.summarize(module),
+                module.getTitle() + " " + module.getHookSurface(),
+                v -> showRootModuleSettingsDialog(module));
+    }
+
+    private void addRootSettingsDropdown(@NonNull LinearLayout page) {
+        List<String> labels = new ArrayList<>();
+        List<View.OnClickListener> actions = new ArrayList<>();
+        labels.add("选择Root设置项");
+        actions.add(null);
+        labels.add("Root授权");
+        actions.add(v -> showSimulationSettingsFormPage("Root授权", true, R.id.section_settings_root_auth));
+        if (isRootControlsUnlocked()) {
+            labels.add("环境状态");
+            actions.add(v -> showSimulationSettingsFormPage("环境状态", true, R.id.section_settings_root_environment));
+            labels.add("作用域与诊断状态");
+            actions.add(v -> showSimulationSettingsFormPage("作用域与诊断状态", true,
+                    R.id.section_settings_root_restricted));
+            addRootDropdownModule(labels, actions, RootDiagnosticModule.LOCATION_NMEA);
+            addRootDropdownModule(labels, actions, RootDiagnosticModule.RADIO_WIFI_SIGNAL);
+            addRootDropdownModule(labels, actions, RootDiagnosticModule.DETECTION_BYPASS);
+            addRootDropdownModule(labels, actions, RootDiagnosticModule.TARGET_APP_HOOK);
+            addRootDropdownModule(labels, actions, RootDiagnosticModule.SERVICE_STREAM);
+            addRootDropdownModule(labels, actions, RootDiagnosticModule.SENSOR_INJECTION);
+        }
+
+        Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_item,
+                labels
+        );
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (position <= 0 || position >= actions.size()) {
+                    return;
+                }
+                View.OnClickListener action = actions.get(position);
+                if (action != null) {
+                    action.onClick(spinner);
+                }
+                spinner.setSelection(0);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // No-op.
+            }
+        });
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.topMargin = Math.round(dp(8f));
+        page.addView(spinner, params);
+    }
+
+    private void addRootDropdownModule(
+            @NonNull List<String> labels,
+            @NonNull List<View.OnClickListener> actions,
+            @NonNull RootDiagnosticModule module
+    ) {
+        labels.add(module.getTitle());
+        actions.add(v -> showRootModuleSettingsDialog(module));
+    }
+
+    private void filterSimulationSettingsHomeRows(
+            @NonNull List<SimulationSettingsHomeRow> rows,
+            @NonNull String query
+    ) {
+        String normalized = query.trim().toLowerCase(Locale.getDefault());
+        for (SimulationSettingsHomeRow row : rows) {
+            row.category.setVisibility(View.GONE);
+        }
+        for (SimulationSettingsHomeRow row : rows) {
+            boolean matched = TextUtils.isEmpty(normalized)
+                    || row.keywords.toLowerCase(Locale.getDefault()).contains(normalized);
+            row.row.setVisibility(matched ? View.VISIBLE : View.GONE);
+            if (matched) {
+                row.category.setVisibility(View.VISIBLE);
+            }
+        }
+    }
+
+    private void showSimulationSettingsFormPage(
+            @NonNull String title,
+            boolean rootPage,
+            int... visibleSectionIds
+    ) {
+        if (simulationSettingsFormView == null || simulationSettingsContentFrame == null) {
+            return;
+        }
+        simulationSettingsSubPageVisible = true;
+        simulationSettingsActiveSaveAction = null;
+        if (simulationSettingsTitleView != null) {
+            simulationSettingsTitleView.setText(title);
+        }
+        if (simulationSettingsPrimaryButton != null) {
+            simulationSettingsPrimaryButton.setVisibility(rootPage ? View.GONE : View.VISIBLE);
+            simulationSettingsPrimaryButton.setText(R.string.route_link_settings_confirm);
+            simulationSettingsPrimaryButton.setOnClickListener(v -> saveSimulationSettings());
+        }
+        if (prefsStore != null) {
+            prefsStore.saveRouteSettingsMode(rootPage
+                    ? SimulationPrefsStore.ROUTE_SETTINGS_MODE_ROOT
+                    : SimulationPrefsStore.ROUTE_SETTINGS_MODE_NON_ROOT);
+        }
+        if (rootPage && !renderRootAccessGate()) {
+            return;
+        }
+        if (rootPage) {
+            renderRootEnvironmentReport();
+        }
+        prepareSimulationSettingsFormForSubPage();
+        hideAllSimulationSettingsFormSections();
+        if (settingsRootContainer != null) {
+            settingsRootContainer.setVisibility(rootPage ? View.VISIBLE : View.GONE);
+        }
+        if (rootPage) {
+            setSimulationSettingsFormViewVisibility(R.id.tv_dialog_root_testing_notice, View.VISIBLE);
+        }
+        for (int viewId : visibleSectionIds) {
+            setSimulationSettingsFormViewVisibility(viewId, View.VISIBLE);
+        }
+        setSimulationSettingsContent(simulationSettingsFormView);
+        ScrollView scrollView = simulationSettingsFormView.findViewById(R.id.scroll_dialog_settings);
+        if (scrollView != null) {
+            scrollView.post(() -> scrollView.smoothScrollTo(0, 0));
+        }
+    }
+
+    private void prepareSimulationSettingsFormForSubPage() {
+        setSimulationSettingsFormViewVisibility(R.id.et_dialog_settings_search, View.GONE);
+        setSimulationSettingsFormViewVisibility(R.id.layout_dialog_settings_mode_tabs, View.GONE);
+        setSimulationSettingsFormViewVisibility(R.id.layout_dialog_settings_letter_rail, View.GONE);
+        if (simulationSettingsFormView != null) {
+            ScrollView scrollView = simulationSettingsFormView.findViewById(R.id.scroll_dialog_settings);
+            if (scrollView != null) {
+                ViewGroup.LayoutParams params = scrollView.getLayoutParams();
+                params.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                scrollView.setLayoutParams(params);
+                scrollView.setFillViewport(false);
+            }
+        }
+    }
+
+    private void hideAllSimulationSettingsFormSections() {
+        int[] sectionIds = new int[] {
+                R.id.section_settings_link,
+                R.id.section_settings_steps,
+                R.id.section_settings_loop,
+                R.id.section_settings_nmea,
+                R.id.section_settings_dynamic,
+                R.id.section_settings_path,
+                R.id.section_settings_altitude,
+                R.id.section_settings_floating,
+                R.id.section_settings_ringtone,
+                R.id.section_settings_share,
+                R.id.tv_dialog_root_testing_notice,
+                R.id.section_settings_root_auth,
+                R.id.section_settings_root_environment,
+                R.id.section_settings_root_restricted,
+                R.id.section_settings_algorithm_lab,
+                R.id.section_settings_root_logs
+        };
+        for (int sectionId : sectionIds) {
+            setSimulationSettingsFormViewVisibility(sectionId, View.GONE);
+        }
+    }
+
+    private void setSimulationSettingsFormViewVisibility(int viewId, int visibility) {
+        if (simulationSettingsFormView == null) {
+            return;
+        }
+        View view = simulationSettingsFormView.findViewById(viewId);
+        if (view != null) {
+            view.setVisibility(visibility);
+        }
+    }
+
+    private void setSimulationSettingsContent(@NonNull View view) {
+        if (simulationSettingsContentFrame == null) {
+            return;
+        }
+        if (view.getParent() instanceof ViewGroup) {
+            ((ViewGroup) view.getParent()).removeView(view);
+        }
+        simulationSettingsContentFrame.removeAllViews();
+        simulationSettingsContentFrame.addView(view, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+    }
+
+    private void handleSimulationSettingsBack() {
+        if (simulationSettingsSubPageVisible) {
+            showSimulationSettingsHomePage();
+        } else {
+            hideSimulationSettingsOverlay();
+        }
+    }
+
+    private void hideSimulationSettingsOverlay() {
+        if (rootFeatureConfigStore != null) {
+            rootFeatureConfigStore.unregisterListener(rootFeatureConfigListener);
+        }
+        stopReminderFeedback();
+        if (simulationSettingsOverlay != null && simulationSettingsOverlay.getParent() instanceof ViewGroup) {
+            ((ViewGroup) simulationSettingsOverlay.getParent()).removeView(simulationSettingsOverlay);
+        }
+        simulationSettingsOverlay = null;
+        simulationSettingsContentFrame = null;
+        simulationSettingsTitleView = null;
+        simulationSettingsPrimaryButton = null;
+        simulationSettingsFormView = null;
+        simulationSettingsSubPageVisible = false;
+        simulationSettingsActiveSaveAction = null;
+        clearSimulationSettingsViewReferences();
+    }
+
+    private void clearSimulationSettingsViewReferences() {
+        settingsLinkRatioLeftInput = null;
+        settingsLinkRatioRightInput = null;
+        settingsStepsPerMeterInput = null;
+        settingsLoopInput = null;
+        settingsSatelliteSeekBar = null;
+        settingsSatelliteValueView = null;
+        settingsSignalQualityGroup = null;
+        settingsHdopSeekBar = null;
+        settingsHdopValueView = null;
+        settingsUpdateIntervalSeekBar = null;
+        settingsUpdateIntervalValueView = null;
+        settingsNetworkSimulationSwitch = null;
+        settingsDynamicIntensitySwitch = null;
+        settingsIntensityRangeInput = null;
+        settingsIntensityFrequencySeekBar = null;
+        settingsIntensityFrequencyValueView = null;
+        settingsPathVariationSwitch = null;
+        settingsPathVariationInput = null;
+        settingsAltitudeVariationSwitch = null;
+        settingsAltitudeBaseInput = null;
+        settingsAltitudeVariationRangeInput = null;
+        settingsAltitudeHeightInput = null;
+        settingsAltitudeProbabilitySeekBar = null;
+        settingsAltitudeProbabilityValueView = null;
+        settingsFloatingWindowSwitch = null;
+        settingsFloatingWindowScaleSeekBar = null;
+        settingsFloatingWindowButtonSizeSeekBar = null;
+        settingsFloatingWindowScaleView = null;
+        settingsFloatingWindowButtonSizeView = null;
+        settingsFloatingWindowPreview = null;
+        settingsReminderToneView = null;
+        settingsNonRootTabView = null;
+        settingsRootTabView = null;
+        settingsRootContainer = null;
+        settingsRootEnvironmentSection = null;
+        settingsRootRestrictedSection = null;
+        settingsRootAlgorithmLabSection = null;
+        settingsRootLogsSection = null;
+        settingsRootInternalStatusView = null;
+        settingsRootModeStatusView = null;
+        settingsRootStatusView = null;
+        settingsRootAuthorizationStatusView = null;
+        settingsRootHiddenStatusView = null;
+        settingsRootDeveloperStatusView = null;
+        settingsRootMockStatusView = null;
+        settingsRootHookStatusView = null;
+        settingsRootTargetStatusView = null;
+        settingsRootCompatibilityStatusView = null;
+        settingsRootFeatureConfigStatusView = null;
+        settingsRootDiagnosticLogView = null;
+        settingsRootAuditLogView = null;
+        settingsRootRefreshButton = null;
+        settingsRootConfirmSessionButton = null;
+        settingsRootRequestSuButton = null;
+        settingsRootPickTargetButton = null;
+        settingsRootNmeaSettingsButton = null;
+        settingsRootSignalSettingsButton = null;
+        settingsRootBypassSettingsButton = null;
+        settingsRootHookSettingsButton = null;
+        settingsRootServiceSettingsButton = null;
+        settingsRootSensorSettingsButton = null;
+        settingsRootReloadConfigButton = null;
+        settingsRootGenerateGmButton = null;
+        settingsAlgorithmLabButton = null;
+        settingsTestInstructionStudioButton = null;
+        settingsScenarioLibraryButton = null;
+        settingsPressureLabButton = null;
+        settingsRootModeSwitch = null;
+        settingsRootEnvironmentSwitch = null;
+        settingsRootSuProbeSwitch = null;
+        settingsRootEncryptedAuditSwitch = null;
+        settingsRootGmInterfaceSwitch = null;
+        settingsRootFridaInjectionSwitch = null;
+        settingsRootNmeaSwitch = null;
+        settingsRootSignalSwitch = null;
+        settingsRootBypassSwitch = null;
+        settingsRootHookSwitch = null;
+        settingsRootServiceLogSwitch = null;
+        settingsRootSensorSwitch = null;
     }
 
     private void selectSimulationSettingsMode(boolean rootMode) {
@@ -2670,11 +3238,10 @@ public class RouteRunActivity extends BaseActivity {
 
     @Nullable
     private View findSimulationSettingsDialogViewById(int viewId) {
-        if (settingsRootContainer == null) {
+        if (simulationSettingsFormView == null) {
             return null;
         }
-        View root = settingsRootContainer.getRootView();
-        return root == null ? null : root.findViewById(viewId);
+        return simulationSettingsFormView.findViewById(viewId);
     }
 
     private void bindRootFeatureSwitches() {
@@ -3319,7 +3886,7 @@ public class RouteRunActivity extends BaseActivity {
 
     @NonNull
     private EditText addRootSettingsEdit(@NonNull LinearLayout content, @NonNull String label, double value) {
-        return addRootSettingsEdit(content, label, String.format(Locale.US, "%.6f", value));
+        return addRootSettingsEdit(content, label, String.format(Locale.US, "%.2f", value));
     }
 
     @NonNull
@@ -3367,24 +3934,85 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull LinearLayout content,
             @NonNull RootSettingsSaveAction saveAction
     ) {
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(module.getTitle() + "设置")
-                .setView(content)
-                .setPositiveButton(R.string.route_link_settings_confirm, null)
-                .setNegativeButton(R.string.route_link_settings_cancel, null)
-                .create();
-        dialog.setOnShowListener(ignored -> {
-            resizeDialogWindow(dialog, 0.82f, 0.72f);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        if (simulationSettingsOverlay == null) {
+            showSimulationSettingsDialog();
+        }
+        simulationSettingsSubPageVisible = true;
+        simulationSettingsActiveSaveAction = saveAction;
+        if (simulationSettingsTitleView != null) {
+            simulationSettingsTitleView.setText(module.getTitle() + "设置");
+        }
+        if (simulationSettingsPrimaryButton != null) {
+            simulationSettingsPrimaryButton.setVisibility(View.VISIBLE);
+            simulationSettingsPrimaryButton.setText(R.string.route_link_settings_confirm);
+            simulationSettingsPrimaryButton.setOnClickListener(v -> {
                 try {
-                    saveAction.save();
-                    dialog.dismiss();
+                    if (simulationSettingsActiveSaveAction != null) {
+                        simulationSettingsActiveSaveAction.save();
+                    }
+                    showSimulationSettingsHomePage();
                 } catch (Exception exception) {
                     GoUtils.DisplayToast(this, exception.getMessage() == null ? "模块设置无效。" : exception.getMessage());
                 }
             });
-        });
-        dialog.show();
+        }
+
+        LinearLayout page = createRootSettingsForm();
+        Switch moduleSwitch = createRootModuleSwitch(module);
+        if (moduleSwitch != null) {
+            page.addView(moduleSwitch, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            ));
+        }
+        if (content.getParent() instanceof ViewGroup) {
+            ((ViewGroup) content.getParent()).removeView(content);
+        }
+        page.addView(content, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(page, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        setSimulationSettingsContent(scrollView);
+    }
+
+    @Nullable
+    private Switch createRootModuleSwitch(@NonNull RootDiagnosticModule module) {
+        RootFeature feature = rootFeatureForModule(module);
+        if (feature == null) {
+            return null;
+        }
+        Switch switchView = new Switch(this);
+        switchView.setText(module.getTitle() + "模块开关");
+        switchView.setChecked(isRootFeatureEnabled(feature));
+        switchView.setEnabled(isRootControlsUnlocked());
+        switchView.setOnCheckedChangeListener((buttonView, isChecked) -> updateRootFeatureSwitch(feature, isChecked));
+        return switchView;
+    }
+
+    @Nullable
+    private RootFeature rootFeatureForModule(@NonNull RootDiagnosticModule module) {
+        switch (module) {
+            case LOCATION_NMEA:
+                return RootFeature.ROOT_NMEA_INJECTION;
+            case RADIO_WIFI_SIGNAL:
+                return RootFeature.SIGNAL_SIMULATION;
+            case DETECTION_BYPASS:
+                return RootFeature.MOCK_LOCATION_BYPASS;
+            case TARGET_APP_HOOK:
+                return RootFeature.TARGET_APP_HOOK;
+            case SERVICE_STREAM:
+                return RootFeature.SYSTEM_SERVICE_STREAM_LOG;
+            case SENSOR_INJECTION:
+                return RootFeature.SENSOR_EVENT_INJECTION;
+            default:
+                return null;
+        }
     }
 
     private void saveRootDiagnosticSettings(@NonNull RootDiagnosticSettings settings) {
@@ -4221,8 +4849,8 @@ public class RouteRunActivity extends BaseActivity {
                 hideFloatingWindow();
             }
             renderToggleButtonState();
-            if (simulationSettingsDialog != null) {
-                simulationSettingsDialog.dismiss();
+            if (simulationSettingsOverlay != null) {
+                hideSimulationSettingsOverlay();
             }
         } catch (IllegalArgumentException exception) {
             GoUtils.DisplayToast(this, exception.getMessage());
@@ -5911,6 +6539,22 @@ public class RouteRunActivity extends BaseActivity {
             this.letter = letter;
             this.keywords = keywords;
             this.rootOnly = rootOnly;
+        }
+    }
+
+    private static final class SimulationSettingsHomeRow {
+        private final View row;
+        private final View category;
+        private final String keywords;
+
+        private SimulationSettingsHomeRow(
+                @NonNull View row,
+                @NonNull View category,
+                @NonNull String keywords
+        ) {
+            this.row = row;
+            this.category = category;
+            this.keywords = keywords;
         }
     }
 
