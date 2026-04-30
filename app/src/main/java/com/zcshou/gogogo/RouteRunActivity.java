@@ -110,6 +110,7 @@ import com.acooldog.toolbox.root.RootFeatureRuntimeController;
 import com.acooldog.toolbox.root.RootFeatureRuntimeReport;
 import com.acooldog.toolbox.root.RootGmTestData;
 import com.acooldog.toolbox.root.RootGmTestDataGenerator;
+import com.acooldog.toolbox.root.RootSensorMotionProfile;
 import com.acooldog.toolbox.root.RootSignalStrengthProfile;
 import com.acooldog.toolbox.root.RootShellProbeResult;
 import com.acooldog.toolbox.root.RootTestAuditLogger;
@@ -499,6 +500,9 @@ public class RouteRunActivity extends BaseActivity {
         super.onResume();
         mainHandler.removeCallbacks(showFloatingWindowRetryRunnable);
         mapView.onResume();
+        if (rootDiagnosticSettingsStore != null) {
+            latestRootDiagnosticSettings = rootDiagnosticSettingsStore.load();
+        }
         hideFloatingWindow();
         if (prefsStore.isRouteCompletionPending()) {
             completionNoticePending = true;
@@ -3228,13 +3232,68 @@ public class RouteRunActivity extends BaseActivity {
         EditText minCadenceInput = addRootSettingsEdit(content, "最低步频 SPM", settings.getSensorMinCadence());
         EditText maxCadenceInput = addRootSettingsEdit(content, "最高步频 SPM", settings.getSensorMaxCadence());
         EditText waveInput = addRootSettingsEdit(content, "Z轴波形振幅", settings.getSensorWaveAmplitude());
+        EditText jitterRangeInput = addRootSettingsEdit(content, "自然抖动范围 m/s²", settings.getSensorNaturalJitterRange());
+        EditText jitterProbabilityInput = addRootSettingsEdit(content, "自然抖动概率 0-1", settings.getSensorNaturalJitterProbability());
+        Button waveformButton = new Button(this);
+        waveformButton.setText("录入/编辑传感器运动波形");
+        waveformButton.setOnClickListener(v -> startActivity(new Intent(this, RootSensorWaveformActivity.class)));
+        content.addView(waveformButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
         showRootSettingsDialog(RootDiagnosticModule.SENSOR_INJECTION, content, () -> saveRootDiagnosticSettings(
-                settings.withSensor(
-                        parseRootSettingDouble(minCadenceInput, "最低步频"),
-                        parseRootSettingDouble(maxCadenceInput, "最高步频"),
-                        parseRootSettingDouble(waveInput, "Z轴波形振幅")
+                buildSensorSettingsFromInputs(
+                        settings,
+                        minCadenceInput,
+                        maxCadenceInput,
+                        waveInput,
+                        jitterRangeInput,
+                        jitterProbabilityInput
                 )
         ));
+    }
+
+    @NonNull
+    private RootDiagnosticSettings buildSensorSettingsFromInputs(
+            @NonNull RootDiagnosticSettings dialogSettings,
+            @NonNull EditText minCadenceInput,
+            @NonNull EditText maxCadenceInput,
+            @NonNull EditText waveInput,
+            @NonNull EditText jitterRangeInput,
+            @NonNull EditText jitterProbabilityInput
+    ) {
+        RootSensorMotionProfile latestProfile = loadLatestSensorMotionProfile(dialogSettings);
+        double dialogJitterRange = parseRootSettingDouble(jitterRangeInput, "自然抖动范围");
+        double dialogJitterProbability = parseRootSettingDouble(jitterProbabilityInput, "自然抖动概率");
+        double nextJitterRange = nearlySame(dialogJitterRange, dialogSettings.getSensorNaturalJitterRange())
+                ? latestProfile.getNaturalJitterRange()
+                : dialogJitterRange;
+        double nextJitterProbability = nearlySame(
+                dialogJitterProbability,
+                dialogSettings.getSensorNaturalJitterProbability()
+        ) ? latestProfile.getNaturalJitterProbability() : dialogJitterProbability;
+        return dialogSettings.withSensor(
+                parseRootSettingDouble(minCadenceInput, "最低步频"),
+                parseRootSettingDouble(maxCadenceInput, "最高步频"),
+                parseRootSettingDouble(waveInput, "Z轴波形振幅"),
+                new RootSensorMotionProfile(
+                        nextJitterRange,
+                        nextJitterProbability,
+                        latestProfile.getWaveformSamples()
+                )
+        );
+    }
+
+    private boolean nearlySame(double left, double right) {
+        return Math.abs(left - right) < 0.0001d;
+    }
+
+    @NonNull
+    private RootSensorMotionProfile loadLatestSensorMotionProfile(@NonNull RootDiagnosticSettings fallbackSettings) {
+        if (rootDiagnosticSettingsStore == null) {
+            return fallbackSettings.getSensorMotionProfile();
+        }
+        return rootDiagnosticSettingsStore.load().getSensorMotionProfile();
     }
 
     @NonNull

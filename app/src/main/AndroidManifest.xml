@@ -220,6 +220,13 @@
             android:parentActivityName=".HomeActivity" />
 
         <activity
+            android:name=".RootSensorWaveformActivity"
+            android:label="传感器运动波形"
+            android:parentActivityName=".RouteRunActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <activity
             android:name=".RouteActivity"
             android:exported="false"
             android:label="路线管理" />

@@ -1,0 +1,425 @@
+package com.acooldog.toolbox;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.TextUtils;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+
+import com.acooldog.toolbox.root.RootDiagnosticSettings;
+import com.acooldog.toolbox.root.RootDiagnosticSettingsStore;
+import com.acooldog.toolbox.root.RootSensorMotionProfile;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+public class RootSensorWaveformActivity extends BaseActivity {
+    private static final int RECORD_SAMPLE_COUNT = 48;
+    private static final long RECORD_DURATION_MILLIS = 6000L;
+
+    private RootDiagnosticSettingsStore settingsStore;
+    private SensorManager sensorManager;
+    private Sensor accelerometer;
+    private EditText jitterRangeInput;
+    private EditText jitterProbabilityInput;
+    private TextView statusView;
+    private TextView waveformSummaryView;
+    private TextView countdownView;
+    private WaveformEditorView waveformView;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final List<Double> recordedMagnitudes = new ArrayList<>();
+    private boolean recording;
+
+    private final SensorEventListener recordingListener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            if (!recording || event == null || event.values == null || event.values.length < 3) {
+                return;
+            }
+            double x = event.values[0];
+            double y = event.values[1];
+            double z = event.values[2];
+            recordedMagnitudes.add(Math.sqrt(x * x + y * y + z * z));
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
+            // No-op for recording.
+        }
+    };
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        settingsStore = new RootDiagnosticSettingsStore(getApplicationContext());
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        accelerometer = sensorManager == null ? null : sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        buildContent();
+        loadSettings();
+    }
+
+    @Override
+    protected void onPause() {
+        stopRecording(false);
+        super.onPause();
+    }
+
+    private void buildContent() {
+        FrameLayout root = new FrameLayout(this);
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int padding = dp(16f);
+        content.setPadding(padding, padding, padding, padding + dp(24f));
+        scrollView.addView(content, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        ImageButton backButton = new ImageButton(this);
+        backButton.setImageResource(android.R.drawable.ic_media_previous);
+        backButton.setBackgroundColor(Color.TRANSPARENT);
+        backButton.setContentDescription("返回");
+        backButton.setOnClickListener(v -> finish());
+        toolbar.addView(backButton, new LinearLayout.LayoutParams(dp(44f), dp(44f)));
+
+        TextView titleView = new TextView(this);
+        titleView.setText("传感器运动波形");
+        titleView.setTextColor(Color.parseColor("#263238"));
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f);
+        titleView.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.addView(titleView, new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        ));
+        content.addView(toolbar);
+
+        statusView = addText(content, "", 14f, "#455A64");
+        addLabel(content, "自然抖动范围 m/s²");
+        jitterRangeInput = addInput(content);
+        addLabel(content, "自然抖动概率 0-1");
+        jitterProbabilityInput = addInput(content);
+
+        waveformSummaryView = addText(content, "", 13f, "#607D8B");
+        waveformView = new WaveformEditorView(this);
+        content.addView(waveformView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(220f)
+        ));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.VERTICAL);
+        actions.addView(actionButton("3秒倒计时录入", v -> startCountdown(3)));
+        actions.addView(actionButton("恢复默认波形", v -> applyDefaultWaveform()));
+        actions.addView(actionButton("保存波形", v -> saveSettings()));
+        content.addView(actions, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        countdownView = new TextView(this);
+        countdownView.setVisibility(View.GONE);
+        countdownView.setGravity(Gravity.CENTER);
+        countdownView.setTextColor(Color.WHITE);
+        countdownView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 76f);
+        countdownView.setBackgroundColor(Color.parseColor("#CC263238"));
+        root.addView(scrollView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        root.addView(countdownView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        setContentView(root);
+    }
+
+    private void loadSettings() {
+        RootDiagnosticSettings settings = settingsStore.load();
+        RootSensorMotionProfile profile = settings.getSensorMotionProfile();
+        jitterRangeInput.setText(String.format(Locale.US, "%.2f", profile.getNaturalJitterRange()));
+        jitterProbabilityInput.setText(String.format(Locale.US, "%.2f", profile.getNaturalJitterProbability()));
+        waveformView.setSamples(profile.getWaveformSamples());
+        statusView.setText(String.format(
+                Locale.getDefault(),
+                "当前步频范围 %.0f-%.0f SPM，Z轴振幅 %.1f。拖动波形点可编辑一个步频周期。",
+                settings.getSensorMinCadence(),
+                settings.getSensorMaxCadence(),
+                settings.getSensorWaveAmplitude()
+        ));
+        updateWaveformSummary();
+    }
+
+    private void startCountdown(int secondsLeft) {
+        if (recording) {
+            return;
+        }
+        if (accelerometer == null || sensorManager == null) {
+            Toast.makeText(this, "当前设备没有可用的加速度计。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        countdownView.setVisibility(View.VISIBLE);
+        countdownView.setText(String.valueOf(secondsLeft));
+        if (secondsLeft <= 1) {
+            handler.postDelayed(this::startRecording, 1000L);
+            return;
+        }
+        handler.postDelayed(() -> startCountdown(secondsLeft - 1), 1000L);
+    }
+
+    private void startRecording() {
+        recordedMagnitudes.clear();
+        recording = true;
+        countdownView.setText("录入中");
+        statusView.setText("正在录入加速度计运动值，请按目标步频自然运动。");
+        sensorManager.registerListener(recordingListener, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+        handler.postDelayed(() -> stopRecording(true), RECORD_DURATION_MILLIS);
+    }
+
+    private void stopRecording(boolean applyResult) {
+        handler.removeCallbacksAndMessages(null);
+        if (recording && sensorManager != null) {
+            sensorManager.unregisterListener(recordingListener);
+        }
+        boolean wasRecording = recording;
+        recording = false;
+        countdownView.setVisibility(View.GONE);
+        if (!applyResult || !wasRecording) {
+            return;
+        }
+        List<Double> samples = RootSensorMotionProfile.normalizeRecordedMagnitudes(
+                recordedMagnitudes,
+                RECORD_SAMPLE_COUNT
+        );
+        waveformView.setSamples(samples);
+        updateWaveformSummary();
+        statusView.setText("录入完成，可继续拖动波形点进行编辑。");
+    }
+
+    private void applyDefaultWaveform() {
+        RootSensorMotionProfile profile = RootSensorMotionProfile.defaults();
+        jitterRangeInput.setText(String.format(Locale.US, "%.2f", profile.getNaturalJitterRange()));
+        jitterProbabilityInput.setText(String.format(Locale.US, "%.2f", profile.getNaturalJitterProbability()));
+        waveformView.setSamples(profile.getWaveformSamples());
+        updateWaveformSummary();
+    }
+
+    private void saveSettings() {
+        try {
+            RootSensorMotionProfile profile = new RootSensorMotionProfile(
+                    parseDouble(jitterRangeInput, "自然抖动范围"),
+                    parseDouble(jitterProbabilityInput, "自然抖动概率"),
+                    waveformView.getSamples()
+            );
+            RootDiagnosticSettings current = settingsStore.load();
+            RootDiagnosticSettings next = current.withSensor(
+                    current.getSensorMinCadence(),
+                    current.getSensorMaxCadence(),
+                    current.getSensorWaveAmplitude(),
+                    profile
+            );
+            settingsStore.save(next);
+            updateWaveformSummary();
+            Toast.makeText(this, "传感器波形已保存。", Toast.LENGTH_SHORT).show();
+        } catch (IllegalArgumentException exception) {
+            Toast.makeText(this, exception.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void updateWaveformSummary() {
+        waveformSummaryView.setText("波形采样点：" + waveformView.getSamples().size()
+                + "，用于按当前步频循环注入。");
+    }
+
+    @NonNull
+    private TextView addText(@NonNull LinearLayout parent, @NonNull String text, float sp, @NonNull String color) {
+        TextView textView = new TextView(this);
+        textView.setText(text);
+        textView.setTextColor(Color.parseColor(color));
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        textView.setLineSpacing(dp(2f), 1.0f);
+        parent.addView(textView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        return textView;
+    }
+
+    private void addLabel(@NonNull LinearLayout parent, @NonNull String text) {
+        TextView label = addText(parent, text, 13f, "#455A64");
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) label.getLayoutParams();
+        params.topMargin = dp(10f);
+        label.setLayoutParams(params);
+    }
+
+    @NonNull
+    private EditText addInput(@NonNull LinearLayout parent) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        parent.addView(input, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        return input;
+    }
+
+    @NonNull
+    private Button actionButton(@NonNull String label, @NonNull View.OnClickListener listener) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setOnClickListener(listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.topMargin = dp(8f);
+        button.setLayoutParams(params);
+        return button;
+    }
+
+    private double parseDouble(@NonNull EditText input, @NonNull String label) {
+        String value = input.getText() == null ? "" : input.getText().toString().trim();
+        if (TextUtils.isEmpty(value)) {
+            throw new IllegalArgumentException(label + "不能为空。");
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(label + "必须是数字。");
+        }
+    }
+
+    private int dp(float value) {
+        return Math.round(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                value,
+                getResources().getDisplayMetrics()
+        ));
+    }
+
+    private static final class WaveformEditorView extends View {
+        private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint pointPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private List<Double> samples = new ArrayList<>(RootSensorMotionProfile.defaults().getWaveformSamples());
+
+        private WaveformEditorView(Context context) {
+            super(context);
+            gridPaint.setColor(Color.parseColor("#CFD8DC"));
+            gridPaint.setStrokeWidth(1.5f);
+            linePaint.setColor(Color.parseColor("#00796B"));
+            linePaint.setStrokeWidth(4f);
+            linePaint.setStyle(Paint.Style.STROKE);
+            pointPaint.setColor(Color.parseColor("#004D40"));
+            pointPaint.setStyle(Paint.Style.FILL);
+            setBackgroundColor(Color.parseColor("#F7FAFA"));
+        }
+
+        private void setSamples(@NonNull List<Double> nextSamples) {
+            samples = new ArrayList<>(new RootSensorMotionProfile(0d, 0d, nextSamples).getWaveformSamples());
+            invalidate();
+        }
+
+        @NonNull
+        private List<Double> getSamples() {
+            return new ArrayList<>(samples);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int width = getWidth();
+            int height = getHeight();
+            int left = getPaddingLeft() + 8;
+            int right = width - getPaddingRight() - 8;
+            int top = getPaddingTop() + 12;
+            int bottom = height - getPaddingBottom() - 12;
+            int centerY = (top + bottom) / 2;
+            canvas.drawLine(left, centerY, right, centerY, gridPaint);
+            canvas.drawLine(left, top, left, bottom, gridPaint);
+            canvas.drawLine(right, top, right, bottom, gridPaint);
+            if (samples.size() < 2 || right <= left || bottom <= top) {
+                return;
+            }
+            path.reset();
+            for (int index = 0; index < samples.size(); index++) {
+                float x = left + (right - left) * index / (float) (samples.size() - 1);
+                float y = valueToY(samples.get(index), top, bottom);
+                if (index == 0) {
+                    path.moveTo(x, y);
+                } else {
+                    path.lineTo(x, y);
+                }
+            }
+            canvas.drawPath(path, linePaint);
+            for (int index = 0; index < samples.size(); index++) {
+                float x = left + (right - left) * index / (float) (samples.size() - 1);
+                float y = valueToY(samples.get(index), top, bottom);
+                canvas.drawCircle(x, y, 5f, pointPaint);
+            }
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            if (event.getAction() == MotionEvent.ACTION_DOWN
+                    || event.getAction() == MotionEvent.ACTION_MOVE) {
+                updateSampleFromTouch(event.getX(), event.getY());
+                return true;
+            }
+            return true;
+        }
+
+        private void updateSampleFromTouch(float x, float y) {
+            if (samples.size() < 2) {
+                return;
+            }
+            int left = getPaddingLeft() + 8;
+            int right = getWidth() - getPaddingRight() - 8;
+            int top = getPaddingTop() + 12;
+            int bottom = getHeight() - getPaddingBottom() - 12;
+            if (right <= left || bottom <= top) {
+                return;
+            }
+            int index = Math.round((x - left) * (samples.size() - 1) / (float) (right - left));
+            index = Math.max(0, Math.min(samples.size() - 1, index));
+            double value = 1d - ((y - top) / Math.max(1f, bottom - top)) * 2d;
+            value = Math.max(-1d, Math.min(1d, value));
+            samples.set(index, value);
+            invalidate();
+        }
+
+        private float valueToY(double value, int top, int bottom) {
+            double clamped = Math.max(-1d, Math.min(1d, value));
+            return (float) (top + (1d - clamped) * 0.5d * (bottom - top));
+        }
+    }
+}

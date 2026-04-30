@@ -108,7 +108,13 @@ public final class RootDiagnosticHookScriptBuilder {
         script.append("    serviceNfcDisabled: ").append(settings.isServiceNfcDisabled()).append(",\n");
         script.append("    sensorMinCadence: ").append(jsNumber(settings.getSensorMinCadence())).append(",\n");
         script.append("    sensorMaxCadence: ").append(jsNumber(settings.getSensorMaxCadence())).append(",\n");
-        script.append("    sensorWaveAmplitude: ").append(jsNumber(settings.getSensorWaveAmplitude())).append("\n");
+        script.append("    sensorWaveAmplitude: ").append(jsNumber(settings.getSensorWaveAmplitude())).append(",\n");
+        script.append("    sensorNaturalJitterRange: ")
+                .append(jsNumber(settings.getSensorNaturalJitterRange())).append(",\n");
+        script.append("    sensorNaturalJitterProbability: ")
+                .append(jsNumber(settings.getSensorNaturalJitterProbability())).append(",\n");
+        script.append("    sensorWaveform: ")
+                .append(jsNumberArray(settings.getSensorMotionProfile().getWaveformSamples())).append("\n");
         script.append("  };\n");
     }
 
@@ -409,8 +415,23 @@ public final class RootDiagnosticHookScriptBuilder {
         script.append("    const sensorStartedAt = Date.now();\n");
         script.append("    const cadenceRange = Math.max(0, DIAG_SETTINGS.sensorMaxCadence - DIAG_SETTINGS.sensorMinCadence);\n");
         script.append("    const currentCadence = DIAG_SETTINGS.sensorMinCadence + (Math.random() * cadenceRange);\n");
+        script.append("    const waveform = DIAG_SETTINGS.sensorWaveform && DIAG_SETTINGS.sensorWaveform.length >= 2 ? DIAG_SETTINGS.sensorWaveform : null;\n");
         script.append("    let baseStepOffset = null;\n");
         script.append("    let lastLogSecond = -1;\n");
+        script.append("    function waveAt(phase) {\n");
+        script.append("      if (!waveform) { return Math.sin(phase); }\n");
+        script.append("      let normalized = phase / TWO_PI;\n");
+        script.append("      normalized = normalized - Math.floor(normalized);\n");
+        script.append("      const position = normalized * waveform.length;\n");
+        script.append("      const left = Math.floor(position) % waveform.length;\n");
+        script.append("      const right = (left + 1) % waveform.length;\n");
+        script.append("      const ratio = position - Math.floor(position);\n");
+        script.append("      return waveform[left] * (1 - ratio) + waveform[right] * ratio;\n");
+        script.append("    }\n");
+        script.append("    function naturalJitter() {\n");
+        script.append("      if (DIAG_SETTINGS.sensorNaturalJitterRange <= 0 || Math.random() > DIAG_SETTINGS.sensorNaturalJitterProbability) { return 0; }\n");
+        script.append("      return ((Math.random() * 2) - 1) * DIAG_SETTINGS.sensorNaturalJitterRange;\n");
+        script.append("    }\n");
         script.append("    function sensorTypeOf(event) {\n");
         script.append("      try { return event.sensor.value.getType(); } catch (error) { return -1; }\n");
         script.append("    }\n");
@@ -423,9 +444,10 @@ public final class RootDiagnosticHookScriptBuilder {
         script.append("        const cadenceHz = Math.max(0.1, currentCadence / 60.0);\n");
         script.append("        const phase = elapsedSecs * TWO_PI * cadenceHz;\n");
         script.append("        if (type === 1 && values.length >= 3) {\n");
-        script.append("          values[0] = Math.sin(phase) * 0.8;\n");
-        script.append("          values[1] = Math.cos(phase * 0.5) * 0.6;\n");
-        script.append("          values[2] = 9.81 + (Math.sin(phase) * DIAG_SETTINGS.sensorWaveAmplitude);\n");
+        script.append("          const jitter = naturalJitter();\n");
+        script.append("          values[0] = naturalJitter() * 0.2;\n");
+        script.append("          values[1] = (waveAt(phase + Math.PI * 0.5) * 1.5) + (jitter * 0.35);\n");
+        script.append("          values[2] = 9.81 + (waveAt(phase) * DIAG_SETTINGS.sensorWaveAmplitude) + jitter;\n");
         script.append("          const wholeSecond = Math.floor(elapsedSecs);\n");
         script.append("          if (wholeSecond !== lastLogSecond) {\n");
         script.append("            lastLogSecond = wholeSecond;\n");
@@ -551,6 +573,19 @@ public final class RootDiagnosticHookScriptBuilder {
             return "0";
         }
         return String.format(Locale.US, "%.6f", value);
+    }
+
+    @NonNull
+    private static String jsNumberArray(@NonNull List<Double> values) {
+        StringBuilder builder = new StringBuilder("[");
+        for (int index = 0; index < values.size(); index++) {
+            if (index > 0) {
+                builder.append(',');
+            }
+            builder.append(jsNumber(values.get(index)));
+        }
+        builder.append(']');
+        return builder.toString();
     }
 
     @NonNull

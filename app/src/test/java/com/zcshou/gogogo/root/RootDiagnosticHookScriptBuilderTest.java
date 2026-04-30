@@ -51,7 +51,9 @@ public class RootDiagnosticHookScriptBuilderTest {
 
         assertTrue(script.contains("sensorMinCadence: 160.000000"));
         assertTrue(script.contains("sensorMaxCadence: 168.000000"));
-        assertTrue(script.contains("Math.sin(phase)"));
+        assertTrue(script.contains("sensorNaturalJitterRange"));
+        assertTrue(script.contains("sensorWaveform"));
+        assertTrue(script.contains("waveAt(phase)"));
         assertTrue(script.contains("SensorManager.registerListener"));
         assertTrue(script.contains("TYPE_STEP_DETECTOR") || script.contains("type === 18"));
     }

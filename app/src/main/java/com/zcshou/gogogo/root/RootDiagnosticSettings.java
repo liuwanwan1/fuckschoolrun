@@ -55,6 +55,7 @@ public final class RootDiagnosticSettings {
     private final double sensorMinCadence;
     private final double sensorMaxCadence;
     private final double sensorWaveAmplitude;
+    private final RootSensorMotionProfile sensorMotionProfile;
 
     public RootDiagnosticSettings(
             double locationLatitude,
@@ -78,7 +79,8 @@ public final class RootDiagnosticSettings {
             boolean serviceNfcDisabled,
             double sensorMinCadence,
             double sensorMaxCadence,
-            double sensorWaveAmplitude
+            double sensorWaveAmplitude,
+            @NonNull RootSensorMotionProfile sensorMotionProfile
     ) {
         this.locationLatitude = clamp(locationLatitude, -90d, 90d);
         this.locationLongitude = clamp(locationLongitude, -180d, 180d);
@@ -104,6 +106,7 @@ public final class RootDiagnosticSettings {
         this.sensorMinCadence = Math.min(minCadence, maxCadence);
         this.sensorMaxCadence = Math.max(minCadence, maxCadence);
         this.sensorWaveAmplitude = clamp(sensorWaveAmplitude, 0.5d, 8.0d);
+        this.sensorMotionProfile = sensorMotionProfile;
     }
 
     @NonNull
@@ -130,7 +133,8 @@ public final class RootDiagnosticSettings {
                 true,
                 172d,
                 182d,
-                3.5d
+                3.5d,
+                RootSensorMotionProfile.defaults()
         );
     }
 
@@ -164,7 +168,8 @@ public final class RootDiagnosticSettings {
                     object.optBoolean(KEY_SERVICE_NFC_DISABLED, defaults.isServiceNfcDisabled()),
                     object.optDouble(KEY_SENSOR_MIN_CADENCE, defaults.getSensorMinCadence()),
                     object.optDouble(KEY_SENSOR_MAX_CADENCE, defaults.getSensorMaxCadence()),
-                    object.optDouble(KEY_SENSOR_WAVE_AMPLITUDE, defaults.getSensorWaveAmplitude())
+                    object.optDouble(KEY_SENSOR_WAVE_AMPLITUDE, defaults.getSensorWaveAmplitude()),
+                    RootSensorMotionProfile.fromJson(object, defaults.getSensorMotionProfile())
             );
         } catch (Exception ignored) {
             return defaults;
@@ -197,6 +202,7 @@ public final class RootDiagnosticSettings {
             object.put(KEY_SENSOR_MIN_CADENCE, sensorMinCadence);
             object.put(KEY_SENSOR_MAX_CADENCE, sensorMaxCadence);
             object.put(KEY_SENSOR_WAVE_AMPLITUDE, sensorWaveAmplitude);
+            sensorMotionProfile.writeToJson(object);
         } catch (Exception ignored) {
             // Keep best-effort local persistence.
         }
@@ -223,7 +229,8 @@ public final class RootDiagnosticSettings {
             case SERVICE_STREAM:
                 return "clipboardNull=" + serviceClipboardNull + ", bluetoothDisabled=" + serviceBluetoothDisabled + ", nfcDisabled=" + serviceNfcDisabled;
             case SENSOR_INJECTION:
-                return String.format(Locale.getDefault(), "cadence=%.0f-%.0fSPM, wave=%.1f", sensorMinCadence, sensorMaxCadence, sensorWaveAmplitude);
+                return String.format(Locale.getDefault(), "cadence=%.0f-%.0fSPM, wave=%.1f, %s",
+                        sensorMinCadence, sensorMaxCadence, sensorWaveAmplitude, sensorMotionProfile.summarize());
             default:
                 return "";
         }
@@ -339,6 +346,19 @@ public final class RootDiagnosticSettings {
     }
 
     @NonNull
+    public RootSensorMotionProfile getSensorMotionProfile() {
+        return sensorMotionProfile;
+    }
+
+    public double getSensorNaturalJitterRange() {
+        return sensorMotionProfile.getNaturalJitterRange();
+    }
+
+    public double getSensorNaturalJitterProbability() {
+        return sensorMotionProfile.getNaturalJitterProbability();
+    }
+
+    @NonNull
     public RootDiagnosticSettings withLocation(
             double latitude,
             double longitude,
@@ -389,7 +409,8 @@ public final class RootDiagnosticSettings {
                 serviceNfcDisabled,
                 sensorMinCadence,
                 sensorMaxCadence,
-                sensorWaveAmplitude
+                sensorWaveAmplitude,
+                sensorMotionProfile
         );
     }
 
@@ -433,7 +454,8 @@ public final class RootDiagnosticSettings {
                 serviceNfcDisabled,
                 sensorMinCadence,
                 sensorMaxCadence,
-                sensorWaveAmplitude
+                sensorWaveAmplitude,
+                sensorMotionProfile
         );
     }
 
@@ -465,7 +487,8 @@ public final class RootDiagnosticSettings {
                 serviceNfcDisabled,
                 sensorMinCadence,
                 sensorMaxCadence,
-                sensorWaveAmplitude
+                sensorWaveAmplitude,
+                sensorMotionProfile
         );
     }
 
@@ -493,7 +516,8 @@ public final class RootDiagnosticSettings {
                 serviceNfcDisabled,
                 sensorMinCadence,
                 sensorMaxCadence,
-                sensorWaveAmplitude
+                sensorWaveAmplitude,
+                sensorMotionProfile
         );
     }
 
@@ -525,7 +549,8 @@ public final class RootDiagnosticSettings {
                 nfcDisabled,
                 sensorMinCadence,
                 sensorMaxCadence,
-                sensorWaveAmplitude
+                sensorWaveAmplitude,
+                sensorMotionProfile
         );
     }
 
@@ -534,6 +559,16 @@ public final class RootDiagnosticSettings {
             double minCadence,
             double maxCadence,
             double waveAmplitude
+    ) {
+        return withSensor(minCadence, maxCadence, waveAmplitude, sensorMotionProfile);
+    }
+
+    @NonNull
+    public RootDiagnosticSettings withSensor(
+            double minCadence,
+            double maxCadence,
+            double waveAmplitude,
+            @NonNull RootSensorMotionProfile sensorMotionProfile
     ) {
         return new RootDiagnosticSettings(
                 locationLatitude,
@@ -557,7 +592,8 @@ public final class RootDiagnosticSettings {
                 serviceNfcDisabled,
                 minCadence,
                 maxCadence,
-                waveAmplitude
+                waveAmplitude,
+                sensorMotionProfile
         );
     }
 

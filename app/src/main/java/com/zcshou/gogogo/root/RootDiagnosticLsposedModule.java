@@ -1359,13 +1359,14 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             double frequency = currentCadence / 60d;
             double phase = elapsedSeconds * Math.PI * 2d * frequency;
             if (type == Sensor.TYPE_ACCELEROMETER && event.values.length >= 3) {
-                double jitterY = (Math.random() * 0.3d) - 0.15d;
-                double jitterZ = (Math.random() * 0.3d) - 0.15d;
-                event.values[0] = (float) ((Math.random() * 0.1d) - 0.05d);
-                event.values[1] = (float) (Math.cos(phase) * 1.5d + jitterY);
+                double jitter = sensorNaturalJitter();
+                double wave = sensorWaveValue(phase);
+                double sideWave = sensorWaveValue(phase + Math.PI * 0.5d);
+                event.values[0] = (float) (sensorNaturalJitter() * 0.2d);
+                event.values[1] = (float) (sideWave * 1.5d + jitter * 0.35d);
                 event.values[2] = (float) (9.81d
-                        + Math.sin(phase) * activeSettings.getSensorWaveAmplitude()
-                        + jitterZ);
+                        + wave * activeSettings.getSensorWaveAmplitude()
+                        + jitter);
                 long elapsedWholeSecond = (long) elapsedSeconds;
                 if (elapsedWholeSecond != lastSensorLogSecond) {
                     lastSensorLogSecond = elapsedWholeSecond;
@@ -1481,11 +1482,14 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                 if (type == Sensor.TYPE_ACCELEROMETER && event.values.length >= 3) {
                     double frequency = Math.max(0.1d, currentCadence / 60d);
                     double phase = elapsedSeconds * Math.PI * 2d * frequency;
-                    event.values[0] = (float) ((Math.random() * 0.1d) - 0.05d);
-                    event.values[1] = (float) (Math.cos(phase) * 1.5d + ((Math.random() * 0.3d) - 0.15d));
+                    double jitter = sensorNaturalJitter();
+                    double wave = sensorWaveValue(phase);
+                    double sideWave = sensorWaveValue(phase + Math.PI * 0.5d);
+                    event.values[0] = (float) (sensorNaturalJitter() * 0.2d);
+                    event.values[1] = (float) (sideWave * 1.5d + jitter * 0.35d);
                     event.values[2] = (float) (9.81d
-                            + Math.sin(phase) * activeSettings.getSensorWaveAmplitude()
-                            + ((Math.random() * 0.3d) - 0.15d));
+                            + wave * activeSettings.getSensorWaveAmplitude()
+                            + jitter);
                 } else if (type == Sensor.TYPE_STEP_COUNTER || type == 19) {
                     if (stepBaseOffset < 0f) {
                         stepBaseOffset = 0f;
@@ -1506,6 +1510,30 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                 }
             }
         });
+    }
+
+    private double sensorWaveValue(double phase) {
+        List<Double> samples = activeSettings.getSensorMotionProfile().getWaveformSamples();
+        if (samples.size() < 2) {
+            return Math.sin(phase);
+        }
+        double normalized = phase / (Math.PI * 2d);
+        normalized = normalized - Math.floor(normalized);
+        double position = normalized * samples.size();
+        int left = ((int) Math.floor(position)) % samples.size();
+        int right = (left + 1) % samples.size();
+        double ratio = position - Math.floor(position);
+        return samples.get(left) * (1d - ratio) + samples.get(right) * ratio;
+    }
+
+    private double sensorNaturalJitter() {
+        RootSensorMotionProfile profile = activeSettings.getSensorMotionProfile();
+        if (profile.getNaturalJitterRange() <= 0d
+                || profile.getNaturalJitterProbability() <= 0d
+                || Math.random() > profile.getNaturalJitterProbability()) {
+            return 0d;
+        }
+        return ((Math.random() * 2d) - 1d) * profile.getNaturalJitterRange();
     }
 
     private XC_MethodHook returnStringHook(
