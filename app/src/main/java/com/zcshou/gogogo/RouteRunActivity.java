@@ -4987,10 +4987,14 @@ public class RouteRunActivity extends BaseActivity {
                     latestAppClientConfig = finalRefreshedConfig;
                 }
                 boolean allowedNow = renderRootAccessGate();
+                boolean accessChanged = allowedNow != wasAllowedBefore;
                 if (!allowedNow && (wasAllowedBefore || isRootAccessCurrentlyEngaged())) {
                     revokeRootAccessDueToPolicyChange();
                 } else if (allowedNow) {
                     renderRootEnvironmentReport();
+                }
+                if (accessChanged && simulationSettingsOverlay != null && !simulationSettingsSubPageVisible) {
+                    showSimulationSettingsHomePage();
                 }
                 if (scheduleNext) {
                     scheduleRootAccessPolicyRefreshIfNeeded();
