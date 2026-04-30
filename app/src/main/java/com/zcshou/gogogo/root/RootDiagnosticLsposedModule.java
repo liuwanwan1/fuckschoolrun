@@ -1581,7 +1581,11 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     }
 
     private boolean isModuleActive(RootDiagnosticModule module) {
-        return active && activeModules.contains(module);
+        if (!active || !activeModules.contains(module)) {
+            return false;
+        }
+        return module != RootDiagnosticModule.LOCATION_NMEA
+                || activeSettings.isRootLocationSimulationMode();
     }
 
     private static boolean shouldSkipPackage(String packageName) {

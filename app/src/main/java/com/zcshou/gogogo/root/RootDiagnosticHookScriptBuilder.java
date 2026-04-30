@@ -90,6 +90,8 @@ public final class RootDiagnosticHookScriptBuilder {
         script.append("    locationSpeed: ").append(jsNumber(settings.getLocationSpeedMetersPerSecond())).append(",\n");
         script.append("    locationSatellites: ").append(settings.getLocationSatellites()).append(",\n");
         script.append("    locationHdop: ").append(jsNumber(settings.getLocationHdop())).append(",\n");
+        script.append("    locationSimulationMode: ")
+                .append(jsString(settings.getLocationSimulationMode().getValue())).append(",\n");
         script.append("    wifiBssid: ").append(jsString(settings.getWifiBssid())).append(",\n");
         script.append("    wifiSsid: ").append(jsString(settings.getWifiSsid())).append(",\n");
         script.append("    wifiRssiDbm: ").append(settings.getWifiRssiDbm()).append(",\n");
@@ -170,6 +172,10 @@ public final class RootDiagnosticHookScriptBuilder {
             @NonNull RootDiagnosticSettings settings
     ) {
         script.append("  function installLocationNmeaHooks() {\n");
+        script.append("    if (DIAG_SETTINGS.locationSimulationMode !== 'root_global_traveling') {\n");
+        script.append("      emit('root_nmea_injection', 'skipped', 'location simulation mode=' + DIAG_SETTINGS.locationSimulationMode);\n");
+        script.append("      return;\n");
+        script.append("    }\n");
         script.append("    const Location = Java.use('android.location.Location');\n");
         script.append("    const Bundle = Java.use('android.os.Bundle');\n");
         script.append("    const SystemClock = Java.use('android.os.SystemClock');\n");

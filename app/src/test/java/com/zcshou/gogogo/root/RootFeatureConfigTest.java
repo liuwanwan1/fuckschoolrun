@@ -46,6 +46,21 @@ public class RootFeatureConfigTest {
     }
 
     @Test
+    public void rootDiagnosticSettings_canSwitchLocationSimulationMode() {
+        RootDiagnosticSettings settings = RootDiagnosticSettings.defaults()
+                .withLocationSimulationMode(RootDiagnosticSettings.LocationSimulationMode.MOCK_LOCATION);
+
+        assertEquals(
+                RootDiagnosticSettings.LocationSimulationMode.MOCK_LOCATION,
+                settings.getLocationSimulationMode()
+        );
+        assertEquals(
+                RootDiagnosticSettings.LocationSimulationMode.ROOT_GLOBAL_TRAVELING,
+                RootDiagnosticSettings.LocationSimulationMode.fromValue("unknown")
+        );
+    }
+
+    @Test
     public void compatibilityCatalog_includesInternalFuckRunProfiles() {
         assertEquals(5, RootDiagnosticCompatibilityCatalog.all().size());
         assertEquals(

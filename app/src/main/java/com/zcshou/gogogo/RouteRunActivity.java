@@ -50,6 +50,7 @@ import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.LinearLayout;
 import android.widget.RadioGroup;
+import android.widget.RadioButton;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
@@ -99,6 +100,7 @@ import com.acooldog.toolbox.root.RootEnvironmentInspector;
 import com.acooldog.toolbox.root.RootEnvironmentReport;
 import com.acooldog.toolbox.root.RootDiagnosticModule;
 import com.acooldog.toolbox.root.RootDiagnosticSettings;
+import com.acooldog.toolbox.root.RootDiagnosticSettings.LocationSimulationMode;
 import com.acooldog.toolbox.root.RootDiagnosticSettingsStore;
 import com.acooldog.toolbox.root.RootDiagnosticSessionController;
 import com.acooldog.toolbox.root.RootDiagnosticSessionReport;
@@ -1064,6 +1066,7 @@ public class RouteRunActivity extends BaseActivity {
 
         try {
             RouteSimulationConfig config = buildSimulationConfig(null);
+            boolean rootLocationScheme = isRootLocationSimulationSelected();
             boolean resumeCurrentRoute = viewModel.hasResumableSimulationForSelectedRoute();
             prefsStore.setRouteCompletionPending(false);
             completionNoticePending = false;
@@ -1077,8 +1080,13 @@ public class RouteRunActivity extends BaseActivity {
                     0f,
                     0f
             );
-            ensureServiceStarted(routeDefinition, seedPoint);
-            viewModel.startSimulation(config, new ServiceGateway());
+            if (!rootLocationScheme) {
+                ensureServiceStarted(routeDefinition, seedPoint);
+            }
+            viewModel.startSimulation(
+                    config,
+                    rootLocationScheme ? new RootDiagnosticLocationGateway() : new ServiceGateway()
+            );
             dispatchPendingSimulationNfcPayloadIfNeeded();
             maybeStartRootDiagnosticForSimulation();
             renderToggleButtonState();
@@ -1118,6 +1126,9 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private boolean ensureSimulationReady() {
+        if (isRootLocationSimulationSelected()) {
+            return ensureRootLocationSimulationReady();
+        }
         if (!GoUtils.isNetworkAvailable(this)) {
             GoUtils.DisplayToast(this, getResources().getString(R.string.app_error_network));
             return false;
@@ -1131,6 +1142,36 @@ public class RouteRunActivity extends BaseActivity {
             return false;
         }
         return true;
+    }
+
+    private boolean ensureRootLocationSimulationReady() {
+        RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
+        if (!isRootControlsUnlocked(config)) {
+            showRootModeGateToast();
+            return false;
+        }
+        if (!config.isEnabled(RootFeature.FRIDA_DYNAMIC_INJECTION)
+                || !config.isEnabled(RootFeature.ROOT_NMEA_INJECTION)) {
+            GoUtils.DisplayToast(this, "Root方案需要开启LSPosed作用域注入框架和定位信号模拟模块。");
+            return false;
+        }
+        if (!rootTestSessionConfirmed) {
+            GoUtils.DisplayToast(this, "Root方案需要先在Root设置中确认测试会话。");
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isRootLocationSimulationSelected() {
+        if (!isInternalRootTestingEnabled() || !isRootModeConfiguredEnabled()) {
+            return false;
+        }
+        RootDiagnosticSettings settings = latestRootDiagnosticSettings;
+        if (settings == null && rootDiagnosticSettingsStore != null) {
+            settings = rootDiagnosticSettingsStore.load();
+            latestRootDiagnosticSettings = settings;
+        }
+        return settings != null && settings.isRootLocationSimulationMode();
     }
 
     private void promptMockLocationIfNeeded() {
@@ -2078,11 +2119,24 @@ public class RouteRunActivity extends BaseActivity {
         }
         try {
             RouteSimulationConfig config = buildSimulationConfig(RouteSimulationConfig.Mode.SPEED);
+            boolean rootLocationScheme = isRootLocationSimulationSelected();
             double ratioNumerator = config.getLinkRatioNumerator();
             boolean resumeCurrentRoute = viewModel.hasResumableSimulationForSelectedRoute();
             RoutePoint seedPoint = resolveSimulationSeedPoint(routeDefinition, resumeCurrentRoute);
-            ensureServiceStarted(routeDefinition, seedPoint);
-            viewModel.startLinkedSimulation(config, new ServiceGateway());
+            syncRootDiagnosticLocation(
+                    seedPoint.getWgsLongitude(),
+                    seedPoint.getWgsLatitude(),
+                    seedPoint.getAltitude(),
+                    0f,
+                    0f
+            );
+            if (!rootLocationScheme) {
+                ensureServiceStarted(routeDefinition, seedPoint);
+            }
+            viewModel.startLinkedSimulation(
+                    config,
+                    rootLocationScheme ? new RootDiagnosticLocationGateway() : new ServiceGateway()
+            );
             showSimulationMarkerAt(seedPoint);
             pendingLinkedDistanceMeters = 0d;
             initialStepCounterValue = -1f;
@@ -2722,6 +2776,11 @@ public class RouteRunActivity extends BaseActivity {
                     v -> showSimulationSettingsFormPage("Root授权", true, R.id.section_settings_root_auth));
             if (isRootControlsUnlocked()) {
                 addSimulationSettingsEntry(page, rows, rootCategory,
+                        "模拟位置方案",
+                        currentRootDiagnosticSettings().getLocationSimulationMode().getDisplayName(),
+                        "模拟位置 Root GlobalTraveling mock location",
+                        v -> showRootLocationSimulationModeSettings());
+                addSimulationSettingsEntry(page, rows, rootCategory,
                         "环境状态",
                         "隐藏Root、开发者选项、模拟位置和Hook环境",
                         "Root 环境 开发者 模拟位置 Hook",
@@ -2891,6 +2950,8 @@ public class RouteRunActivity extends BaseActivity {
         labels.add("Root授权");
         actions.add(v -> showSimulationSettingsFormPage("Root授权", true, R.id.section_settings_root_auth));
         if (isRootControlsUnlocked()) {
+            labels.add("模拟位置方案");
+            actions.add(v -> showRootLocationSimulationModeSettings());
             labels.add("环境状态");
             actions.add(v -> showSimulationSettingsFormPage("环境状态", true, R.id.section_settings_root_environment));
             labels.add("作用域与诊断状态");
@@ -3665,6 +3726,88 @@ public class RouteRunActivity extends BaseActivity {
                 : getString(R.string.route_root_lsposed_open_failed));
     }
 
+    @NonNull
+    private RootDiagnosticSettings currentRootDiagnosticSettings() {
+        RootDiagnosticSettings settings = latestRootDiagnosticSettings;
+        if (settings == null && rootDiagnosticSettingsStore != null) {
+            settings = rootDiagnosticSettingsStore.load();
+            latestRootDiagnosticSettings = settings;
+        }
+        return settings == null ? RootDiagnosticSettings.defaults() : settings;
+    }
+
+    private void showRootLocationSimulationModeSettings() {
+        if (!isRootControlsUnlocked()) {
+            showRootModeGateToast();
+            return;
+        }
+        if (rootDiagnosticSessionController != null && rootDiagnosticSessionController.isRunning()) {
+            GoUtils.DisplayToast(this, "诊断运行中，结束路线模拟后再修改模拟位置方案。");
+            return;
+        }
+        RootDiagnosticSettings settings = currentRootDiagnosticSettings();
+        LinearLayout content = createRootSettingsForm();
+        addRootSettingsText(content, "Root模式下可选择定位来源：模拟位置方案继续使用系统Mock Location服务；Root方案使用LSPosed/GlobalTraveling通道接管目标进程定位。");
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.VERTICAL);
+        RadioButton mockButton = new RadioButton(this);
+        mockButton.setId(View.generateViewId());
+        mockButton.setText("模拟位置方案");
+        RadioButton rootButton = new RadioButton(this);
+        rootButton.setId(View.generateViewId());
+        rootButton.setText("Root方案");
+        group.addView(mockButton);
+        group.addView(rootButton);
+        group.check(settings.getLocationSimulationMode() == LocationSimulationMode.MOCK_LOCATION
+                ? mockButton.getId()
+                : rootButton.getId());
+        content.addView(group, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        showRootStandaloneSettingsPage("模拟位置方案", content, () -> {
+            LocationSimulationMode mode = group.getCheckedRadioButtonId() == mockButton.getId()
+                    ? LocationSimulationMode.MOCK_LOCATION
+                    : LocationSimulationMode.ROOT_GLOBAL_TRAVELING;
+            saveRootDiagnosticSettings(settings.withLocationSimulationMode(mode));
+        });
+    }
+
+    private void showRootStandaloneSettingsPage(
+            @NonNull String title,
+            @NonNull LinearLayout content,
+            @NonNull RootSettingsSaveAction saveAction
+    ) {
+        if (simulationSettingsOverlay == null) {
+            showSimulationSettingsDialog();
+        }
+        simulationSettingsSubPageVisible = true;
+        simulationSettingsActiveSaveAction = saveAction;
+        if (simulationSettingsTitleView != null) {
+            simulationSettingsTitleView.setText(title);
+        }
+        if (simulationSettingsPrimaryButton != null) {
+            simulationSettingsPrimaryButton.setVisibility(View.VISIBLE);
+            simulationSettingsPrimaryButton.setText(R.string.route_link_settings_confirm);
+            simulationSettingsPrimaryButton.setOnClickListener(v -> {
+                try {
+                    if (simulationSettingsActiveSaveAction != null) {
+                        simulationSettingsActiveSaveAction.save();
+                    }
+                    showSimulationSettingsHomePage();
+                } catch (Exception exception) {
+                    GoUtils.DisplayToast(this, exception.getMessage() == null ? "设置无效。" : exception.getMessage());
+                }
+            });
+        }
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(content, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        setSimulationSettingsContent(scrollView);
+    }
+
     private void showRootModuleSettingsDialog(@NonNull RootDiagnosticModule module) {
         if (!isRootControlsUnlocked()) {
             showRootModeGateToast();
@@ -3829,9 +3972,24 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull EditText jitterRangeInput,
             @NonNull EditText jitterProbabilityInput
     ) {
-        RootSensorMotionProfile latestProfile = loadLatestSensorMotionProfile(dialogSettings);
+        RootDiagnosticSettings latestSettings = rootDiagnosticSettingsStore == null
+                ? dialogSettings
+                : rootDiagnosticSettingsStore.load();
+        RootSensorMotionProfile latestProfile = latestSettings.getSensorMotionProfile();
+        double dialogMinCadence = parseRootSettingDouble(minCadenceInput, "最低步频");
+        double dialogMaxCadence = parseRootSettingDouble(maxCadenceInput, "最高步频");
+        double dialogWaveAmplitude = parseRootSettingDouble(waveInput, "Z轴波形振幅");
         double dialogJitterRange = parseRootSettingDouble(jitterRangeInput, "自然抖动范围");
         double dialogJitterProbability = parseRootSettingDouble(jitterProbabilityInput, "自然抖动概率");
+        double nextMinCadence = nearlySame(dialogMinCadence, dialogSettings.getSensorMinCadence())
+                ? latestSettings.getSensorMinCadence()
+                : dialogMinCadence;
+        double nextMaxCadence = nearlySame(dialogMaxCadence, dialogSettings.getSensorMaxCadence())
+                ? latestSettings.getSensorMaxCadence()
+                : dialogMaxCadence;
+        double nextWaveAmplitude = nearlySame(dialogWaveAmplitude, dialogSettings.getSensorWaveAmplitude())
+                ? latestSettings.getSensorWaveAmplitude()
+                : dialogWaveAmplitude;
         double nextJitterRange = nearlySame(dialogJitterRange, dialogSettings.getSensorNaturalJitterRange())
                 ? latestProfile.getNaturalJitterRange()
                 : dialogJitterRange;
@@ -3839,10 +3997,10 @@ public class RouteRunActivity extends BaseActivity {
                 dialogJitterProbability,
                 dialogSettings.getSensorNaturalJitterProbability()
         ) ? latestProfile.getNaturalJitterProbability() : dialogJitterProbability;
-        return dialogSettings.withSensor(
-                parseRootSettingDouble(minCadenceInput, "最低步频"),
-                parseRootSettingDouble(maxCadenceInput, "最高步频"),
-                parseRootSettingDouble(waveInput, "Z轴波形振幅"),
+        return latestSettings.withSensor(
+                nextMinCadence,
+                nextMaxCadence,
+                nextWaveAmplitude,
                 new RootSensorMotionProfile(
                         nextJitterRange,
                         nextJitterProbability,
@@ -3853,14 +4011,6 @@ public class RouteRunActivity extends BaseActivity {
 
     private boolean nearlySame(double left, double right) {
         return Math.abs(left - right) < 0.0001d;
-    }
-
-    @NonNull
-    private RootSensorMotionProfile loadLatestSensorMotionProfile(@NonNull RootDiagnosticSettings fallbackSettings) {
-        if (rootDiagnosticSettingsStore == null) {
-            return fallbackSettings.getSensorMotionProfile();
-        }
-        return rootDiagnosticSettingsStore.load().getSensorMotionProfile();
     }
 
     @NonNull
@@ -6355,6 +6505,15 @@ public class RouteRunActivity extends BaseActivity {
                 pendingMotion = new PendingMotion(longitude, latitude, altitude, speed, bearing);
                 XLog.d("RouteRunActivity: cached pending motion, ServiceGo binder not ready");
             }
+        }
+    }
+
+    private final class RootDiagnosticLocationGateway implements LocationSimulationGateway {
+        @Override
+        public void pushLocation(double longitude, double latitude, double altitude, float speed, float bearing) {
+            updateFloatingWindowPosition(longitude, latitude);
+            syncRootDiagnosticLocation(longitude, latitude, altitude, speed, bearing);
+            XLog.d("RouteRunActivity: pushed motion to Root diagnostic location channel");
         }
     }
 

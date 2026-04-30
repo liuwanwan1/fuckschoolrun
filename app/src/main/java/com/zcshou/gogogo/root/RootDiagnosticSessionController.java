@@ -258,7 +258,8 @@ public final class RootDiagnosticSessionController {
     ) {
         if (!isRunning()
                 || activeInjectionFramework != RootFeatureConfig.InjectionFramework.LSPOSED
-                || !activeModules.contains(RootDiagnosticModule.LOCATION_NMEA)) {
+                || !activeModules.contains(RootDiagnosticModule.LOCATION_NMEA)
+                || !activeSettings.isRootLocationSimulationMode()) {
             return;
         }
         activeSettings = activeSettings.withLocation(

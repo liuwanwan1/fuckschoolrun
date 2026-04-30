@@ -18,6 +18,7 @@ public final class RootDiagnosticSettings {
     private static final String KEY_LOCATION_BEARING = "locationBearing";
     private static final String KEY_LOCATION_SATELLITES = "locationSatellites";
     private static final String KEY_LOCATION_HDOP = "locationHdop";
+    private static final String KEY_LOCATION_SIMULATION_MODE = "locationSimulationMode";
     private static final String KEY_WIFI_BSSID = "wifiBssid";
     private static final String KEY_WIFI_SSID = "wifiSsid";
     private static final String KEY_NETWORK_OPERATOR = "networkOperator";
@@ -40,6 +41,7 @@ public final class RootDiagnosticSettings {
     private final float locationBearingDegrees;
     private final int locationSatellites;
     private final double locationHdop;
+    private final LocationSimulationMode locationSimulationMode;
     private final String wifiBssid;
     private final String wifiSsid;
     private final String networkOperator;
@@ -65,6 +67,7 @@ public final class RootDiagnosticSettings {
             float locationBearingDegrees,
             int locationSatellites,
             double locationHdop,
+            @NonNull LocationSimulationMode locationSimulationMode,
             @NonNull String wifiBssid,
             @NonNull String wifiSsid,
             @NonNull String networkOperator,
@@ -89,6 +92,7 @@ public final class RootDiagnosticSettings {
         this.locationBearingDegrees = normalizeBearing(locationBearingDegrees);
         this.locationSatellites = clamp(locationSatellites, 1, 32);
         this.locationHdop = clamp(locationHdop, 0.3d, 9.9d);
+        this.locationSimulationMode = locationSimulationMode;
         this.wifiBssid = sanitize(wifiBssid, "02:00:00:7a:11:29");
         this.wifiSsid = sanitize(wifiSsid, "Internal-Test-WiFi");
         this.networkOperator = sanitize(networkOperator, "46000");
@@ -119,6 +123,7 @@ public final class RootDiagnosticSettings {
                 0f,
                 9,
                 0.8d,
+                LocationSimulationMode.ROOT_GLOBAL_TRAVELING,
                 "02:00:00:7a:11:29",
                 "Internal-Test-WiFi",
                 "46000",
@@ -154,6 +159,12 @@ public final class RootDiagnosticSettings {
                     (float) object.optDouble(KEY_LOCATION_BEARING, defaults.getLocationBearingDegrees()),
                     object.optInt(KEY_LOCATION_SATELLITES, defaults.getLocationSatellites()),
                     object.optDouble(KEY_LOCATION_HDOP, defaults.getLocationHdop()),
+                    LocationSimulationMode.fromValue(
+                            object.optString(
+                                    KEY_LOCATION_SIMULATION_MODE,
+                                    defaults.getLocationSimulationMode().getValue()
+                            )
+                    ),
                     object.optString(KEY_WIFI_BSSID, defaults.getWifiBssid()),
                     object.optString(KEY_WIFI_SSID, defaults.getWifiSsid()),
                     object.optString(KEY_NETWORK_OPERATOR, defaults.getNetworkOperator()),
@@ -187,6 +198,7 @@ public final class RootDiagnosticSettings {
             object.put(KEY_LOCATION_BEARING, locationBearingDegrees);
             object.put(KEY_LOCATION_SATELLITES, locationSatellites);
             object.put(KEY_LOCATION_HDOP, locationHdop);
+            object.put(KEY_LOCATION_SIMULATION_MODE, locationSimulationMode.getValue());
             object.put(KEY_WIFI_BSSID, wifiBssid);
             object.put(KEY_WIFI_SSID, wifiSsid);
             object.put(KEY_NETWORK_OPERATOR, networkOperator);
@@ -213,7 +225,8 @@ public final class RootDiagnosticSettings {
     public String summarize(@NonNull RootDiagnosticModule module) {
         switch (module) {
             case LOCATION_NMEA:
-                return String.format(Locale.getDefault(), "lat=%.6f, lon=%.6f, speed=%.1fm/s, alt=%.1fm, bearing=%.1f, satellites=%d, hdop=%.1f",
+                return String.format(Locale.getDefault(), "%s, lat=%.6f, lon=%.6f, speed=%.1fm/s, alt=%.1fm, bearing=%.1f, satellites=%d, hdop=%.1f",
+                        locationSimulationMode.getDisplayName(),
                         locationLatitude, locationLongitude, locationSpeedMetersPerSecond,
                         locationAltitudeMeters, locationBearingDegrees, locationSatellites, locationHdop);
             case RADIO_WIFI_SIGNAL:
@@ -262,6 +275,15 @@ public final class RootDiagnosticSettings {
 
     public double getLocationHdop() {
         return locationHdop;
+    }
+
+    @NonNull
+    public LocationSimulationMode getLocationSimulationMode() {
+        return locationSimulationMode;
+    }
+
+    public boolean isRootLocationSimulationMode() {
+        return locationSimulationMode == LocationSimulationMode.ROOT_GLOBAL_TRAVELING;
     }
 
     @NonNull
@@ -395,6 +417,37 @@ public final class RootDiagnosticSettings {
                 bearingDegrees,
                 satellites,
                 hdop,
+                locationSimulationMode,
+                wifiBssid,
+                wifiSsid,
+                networkOperator,
+                networkCountry,
+                signalStrengthProfile,
+                bypassRootArtifacts,
+                bypassDebugger,
+                bypassMockLocation,
+                targetHookMaxMethods,
+                serviceClipboardNull,
+                serviceBluetoothDisabled,
+                serviceNfcDisabled,
+                sensorMinCadence,
+                sensorMaxCadence,
+                sensorWaveAmplitude,
+                sensorMotionProfile
+        );
+    }
+
+    @NonNull
+    public RootDiagnosticSettings withLocationSimulationMode(@NonNull LocationSimulationMode mode) {
+        return new RootDiagnosticSettings(
+                locationLatitude,
+                locationLongitude,
+                locationSpeedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
+                locationSatellites,
+                locationHdop,
+                mode,
                 wifiBssid,
                 wifiSsid,
                 networkOperator,
@@ -440,6 +493,7 @@ public final class RootDiagnosticSettings {
                 locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
+                locationSimulationMode,
                 bssid,
                 ssid,
                 operator,
@@ -473,6 +527,7 @@ public final class RootDiagnosticSettings {
                 locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
+                locationSimulationMode,
                 wifiBssid,
                 wifiSsid,
                 networkOperator,
@@ -502,6 +557,7 @@ public final class RootDiagnosticSettings {
                 locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
+                locationSimulationMode,
                 wifiBssid,
                 wifiSsid,
                 networkOperator,
@@ -535,6 +591,7 @@ public final class RootDiagnosticSettings {
                 locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
+                locationSimulationMode,
                 wifiBssid,
                 wifiSsid,
                 networkOperator,
@@ -578,6 +635,7 @@ public final class RootDiagnosticSettings {
                 locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
+                locationSimulationMode,
                 wifiBssid,
                 wifiSsid,
                 networkOperator,
@@ -623,5 +681,40 @@ public final class RootDiagnosticSettings {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? fallback : trimmed;
+    }
+
+    public enum LocationSimulationMode {
+        MOCK_LOCATION("mock_location", "模拟位置方案"),
+        ROOT_GLOBAL_TRAVELING("root_global_traveling", "Root方案");
+
+        private final String value;
+        private final String displayName;
+
+        LocationSimulationMode(@NonNull String value, @NonNull String displayName) {
+            this.value = value;
+            this.displayName = displayName;
+        }
+
+        @NonNull
+        public String getValue() {
+            return value;
+        }
+
+        @NonNull
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @NonNull
+        public static LocationSimulationMode fromValue(@Nullable String rawValue) {
+            if (rawValue != null) {
+                for (LocationSimulationMode mode : values()) {
+                    if (mode.value.equals(rawValue)) {
+                        return mode;
+                    }
+                }
+            }
+            return ROOT_GLOBAL_TRAVELING;
+        }
     }
 }
