@@ -249,7 +249,13 @@ public final class RootDiagnosticSessionController {
         return true;
     }
 
-    public synchronized void syncRouteLocation(double longitude, double latitude, float speedMetersPerSecond) {
+    public synchronized void syncRouteLocation(
+            double longitude,
+            double latitude,
+            double altitudeMeters,
+            float speedMetersPerSecond,
+            float bearingDegrees
+    ) {
         if (!isRunning()
                 || activeInjectionFramework != RootFeatureConfig.InjectionFramework.LSPOSED
                 || !activeModules.contains(RootDiagnosticModule.LOCATION_NMEA)) {
@@ -259,6 +265,8 @@ public final class RootDiagnosticSessionController {
                 latitude,
                 longitude,
                 speedMetersPerSecond,
+                altitudeMeters,
+                bearingDegrees,
                 activeSettings.getLocationSatellites(),
                 activeSettings.getLocationHdop()
         );
@@ -267,10 +275,12 @@ public final class RootDiagnosticSessionController {
         if (now - lastRouteLocationEventAtMillis >= 3000L) {
             lastRouteLocationEventAtMillis = now;
             recordEvent(RootDiagnosticModule.LOCATION_NMEA.getId(), "route_location_sync",
-                    String.format(java.util.Locale.US, "lat=%.6f, lon=%.6f, speed=%.2fm/s",
+                    String.format(java.util.Locale.US, "lat=%.6f, lon=%.6f, alt=%.1fm, speed=%.2fm/s, bearing=%.1f",
                             activeSettings.getLocationLatitude(),
                             activeSettings.getLocationLongitude(),
-                            activeSettings.getLocationSpeedMetersPerSecond()));
+                            activeSettings.getLocationAltitudeMeters(),
+                            activeSettings.getLocationSpeedMetersPerSecond(),
+                            activeSettings.getLocationBearingDegrees()));
         }
     }
 

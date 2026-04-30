@@ -22,6 +22,15 @@ public class RootFeatureConfigTest {
     }
 
     @Test
+    public void defaults_enableAllDiagnosticModules() {
+        RootFeatureConfig config = RootFeatureConfig.defaults();
+
+        for (RootFeature feature : RootFeature.values()) {
+            assertTrue(config.isEnabled(feature));
+        }
+    }
+
+    @Test
     public void rootModeEnabled_canBeToggledInConfig() {
         RootFeatureConfig config = RootFeatureConfig.defaults().withRootModeEnabled(true);
 

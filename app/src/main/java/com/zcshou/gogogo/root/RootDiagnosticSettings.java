@@ -14,6 +14,8 @@ public final class RootDiagnosticSettings {
     private static final String KEY_LOCATION_LATITUDE = "locationLatitude";
     private static final String KEY_LOCATION_LONGITUDE = "locationLongitude";
     private static final String KEY_LOCATION_SPEED = "locationSpeed";
+    private static final String KEY_LOCATION_ALTITUDE = "locationAltitude";
+    private static final String KEY_LOCATION_BEARING = "locationBearing";
     private static final String KEY_LOCATION_SATELLITES = "locationSatellites";
     private static final String KEY_LOCATION_HDOP = "locationHdop";
     private static final String KEY_WIFI_BSSID = "wifiBssid";
@@ -34,6 +36,8 @@ public final class RootDiagnosticSettings {
     private final double locationLatitude;
     private final double locationLongitude;
     private final double locationSpeedMetersPerSecond;
+    private final double locationAltitudeMeters;
+    private final float locationBearingDegrees;
     private final int locationSatellites;
     private final double locationHdop;
     private final String wifiBssid;
@@ -55,6 +59,8 @@ public final class RootDiagnosticSettings {
             double locationLatitude,
             double locationLongitude,
             double locationSpeedMetersPerSecond,
+            double locationAltitudeMeters,
+            float locationBearingDegrees,
             int locationSatellites,
             double locationHdop,
             @NonNull String wifiBssid,
@@ -75,6 +81,8 @@ public final class RootDiagnosticSettings {
         this.locationLatitude = clamp(locationLatitude, -90d, 90d);
         this.locationLongitude = clamp(locationLongitude, -180d, 180d);
         this.locationSpeedMetersPerSecond = clamp(locationSpeedMetersPerSecond, 0d, 25d);
+        this.locationAltitudeMeters = clamp(locationAltitudeMeters, -500d, 9000d);
+        this.locationBearingDegrees = normalizeBearing(locationBearingDegrees);
         this.locationSatellites = clamp(locationSatellites, 1, 32);
         this.locationHdop = clamp(locationHdop, 0.3d, 9.9d);
         this.wifiBssid = sanitize(wifiBssid, "02:00:00:7a:11:29");
@@ -101,6 +109,8 @@ public final class RootDiagnosticSettings {
                 31.230416d,
                 121.473701d,
                 3.8d,
+                55d,
+                0f,
                 9,
                 0.8d,
                 "02:00:00:7a:11:29",
@@ -132,6 +142,8 @@ public final class RootDiagnosticSettings {
                     object.optDouble(KEY_LOCATION_LATITUDE, defaults.getLocationLatitude()),
                     object.optDouble(KEY_LOCATION_LONGITUDE, defaults.getLocationLongitude()),
                     object.optDouble(KEY_LOCATION_SPEED, defaults.getLocationSpeedMetersPerSecond()),
+                    object.optDouble(KEY_LOCATION_ALTITUDE, defaults.getLocationAltitudeMeters()),
+                    (float) object.optDouble(KEY_LOCATION_BEARING, defaults.getLocationBearingDegrees()),
                     object.optInt(KEY_LOCATION_SATELLITES, defaults.getLocationSatellites()),
                     object.optDouble(KEY_LOCATION_HDOP, defaults.getLocationHdop()),
                     object.optString(KEY_WIFI_BSSID, defaults.getWifiBssid()),
@@ -161,6 +173,8 @@ public final class RootDiagnosticSettings {
             object.put(KEY_LOCATION_LATITUDE, locationLatitude);
             object.put(KEY_LOCATION_LONGITUDE, locationLongitude);
             object.put(KEY_LOCATION_SPEED, locationSpeedMetersPerSecond);
+            object.put(KEY_LOCATION_ALTITUDE, locationAltitudeMeters);
+            object.put(KEY_LOCATION_BEARING, locationBearingDegrees);
             object.put(KEY_LOCATION_SATELLITES, locationSatellites);
             object.put(KEY_LOCATION_HDOP, locationHdop);
             object.put(KEY_WIFI_BSSID, wifiBssid);
@@ -187,8 +201,9 @@ public final class RootDiagnosticSettings {
     public String summarize(@NonNull RootDiagnosticModule module) {
         switch (module) {
             case LOCATION_NMEA:
-                return String.format(Locale.getDefault(), "lat=%.6f, lon=%.6f, speed=%.1fm/s, satellites=%d, hdop=%.1f",
-                        locationLatitude, locationLongitude, locationSpeedMetersPerSecond, locationSatellites, locationHdop);
+                return String.format(Locale.getDefault(), "lat=%.6f, lon=%.6f, speed=%.1fm/s, alt=%.1fm, bearing=%.1f, satellites=%d, hdop=%.1f",
+                        locationLatitude, locationLongitude, locationSpeedMetersPerSecond,
+                        locationAltitudeMeters, locationBearingDegrees, locationSatellites, locationHdop);
             case RADIO_WIFI_SIGNAL:
                 return "ssid=" + wifiSsid + ", bssid=" + wifiBssid + ", operator=" + networkOperator + ", country=" + networkCountry;
             case DETECTION_BYPASS:
@@ -214,6 +229,14 @@ public final class RootDiagnosticSettings {
 
     public double getLocationSpeedMetersPerSecond() {
         return locationSpeedMetersPerSecond;
+    }
+
+    public double getLocationAltitudeMeters() {
+        return locationAltitudeMeters;
+    }
+
+    public float getLocationBearingDegrees() {
+        return locationBearingDegrees;
     }
 
     public int getLocationSatellites() {
@@ -292,10 +315,33 @@ public final class RootDiagnosticSettings {
             int satellites,
             double hdop
     ) {
+        return withLocation(
+                latitude,
+                longitude,
+                speedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
+                satellites,
+                hdop
+        );
+    }
+
+    @NonNull
+    public RootDiagnosticSettings withLocation(
+            double latitude,
+            double longitude,
+            double speedMetersPerSecond,
+            double altitudeMeters,
+            float bearingDegrees,
+            int satellites,
+            double hdop
+    ) {
         return new RootDiagnosticSettings(
                 latitude,
                 longitude,
                 speedMetersPerSecond,
+                altitudeMeters,
+                bearingDegrees,
                 satellites,
                 hdop,
                 wifiBssid,
@@ -326,6 +372,8 @@ public final class RootDiagnosticSettings {
                 locationLatitude,
                 locationLongitude,
                 locationSpeedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
                 bssid,
@@ -355,6 +403,8 @@ public final class RootDiagnosticSettings {
                 locationLatitude,
                 locationLongitude,
                 locationSpeedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
                 wifiBssid,
@@ -380,6 +430,8 @@ public final class RootDiagnosticSettings {
                 locationLatitude,
                 locationLongitude,
                 locationSpeedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
                 wifiBssid,
@@ -409,6 +461,8 @@ public final class RootDiagnosticSettings {
                 locationLatitude,
                 locationLongitude,
                 locationSpeedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
                 wifiBssid,
@@ -438,6 +492,8 @@ public final class RootDiagnosticSettings {
                 locationLatitude,
                 locationLongitude,
                 locationSpeedMetersPerSecond,
+                locationAltitudeMeters,
+                locationBearingDegrees,
                 locationSatellites,
                 locationHdop,
                 wifiBssid,
@@ -466,6 +522,14 @@ public final class RootDiagnosticSettings {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static float normalizeBearing(float value) {
+        if (Float.isNaN(value) || Float.isInfinite(value)) {
+            return 0f;
+        }
+        float normalized = value % 360f;
+        return normalized < 0f ? normalized + 360f : normalized;
     }
 
     @NonNull

@@ -207,7 +207,9 @@ public class RouteRunActivity extends BaseActivity {
     private boolean lastRouteDiagnosticLocationAvailable;
     private double lastRouteDiagnosticLongitude;
     private double lastRouteDiagnosticLatitude;
+    private double lastRouteDiagnosticAltitude;
     private float lastRouteDiagnosticSpeed;
+    private float lastRouteDiagnosticBearing;
     private BroadcastReceiver rootDiagnosticStateRequestReceiver;
     private SensorManager sensorManager;
     private Sensor stepCounterSensor;
@@ -1046,7 +1048,15 @@ public class RouteRunActivity extends BaseActivity {
             completionNoticePending = false;
             hideCompletionOverlay();
             ensureFloatingWindowPermissionIfNeeded();
-            ensureServiceStarted(routeDefinition, resolveSimulationSeedPoint(routeDefinition, resumeCurrentRoute));
+            RoutePoint seedPoint = resolveSimulationSeedPoint(routeDefinition, resumeCurrentRoute);
+            syncRootDiagnosticLocation(
+                    seedPoint.getWgsLongitude(),
+                    seedPoint.getWgsLatitude(),
+                    seedPoint.getAltitude(),
+                    0f,
+                    0f
+            );
+            ensureServiceStarted(routeDefinition, seedPoint);
             viewModel.startSimulation(config, new ServiceGateway());
             dispatchPendingSimulationNfcPayloadIfNeeded();
             maybeStartRootDiagnosticForSimulation();
@@ -2744,9 +2754,28 @@ public class RouteRunActivity extends BaseActivity {
             rootTestSessionConfirmed = false;
             rootShellAuthorized = false;
         }
-        RootFeatureConfig config = rootFeatureConfigStore.setRootModeEnabled(enabled);
+        RootFeatureConfig config = rootFeatureConfigStore.load().withRootModeEnabled(enabled);
+        if (enabled) {
+            config = config.withInjectionFramework(RootFeatureConfig.InjectionFramework.LSPOSED)
+                    .withAllFeaturesEnabled();
+        }
+        rootFeatureConfigStore.save(config);
         applyRootFeatureConfig(config, "root_mode_toggle", true);
         GoUtils.DisplayToast(this, getString(R.string.route_root_config_saved));
+    }
+
+    @NonNull
+    private RootFeatureConfig enableDefaultRootModulesForRouteTakeover() {
+        RootFeatureConfig config = rootFeatureConfigStore == null
+                ? (latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig)
+                : rootFeatureConfigStore.load();
+        config = config.withInjectionFramework(RootFeatureConfig.InjectionFramework.LSPOSED)
+                .withAllFeaturesEnabled();
+        if (rootFeatureConfigStore != null) {
+            rootFeatureConfigStore.save(config);
+        }
+        applyRootFeatureConfig(config, "root_route_takeover_defaults", true);
+        return config;
     }
 
     private void reloadRootFeatureConfig(@NonNull String reason, boolean writeAudit) {
@@ -3105,16 +3134,16 @@ public class RouteRunActivity extends BaseActivity {
             @NonNull LinearLayout content,
             @NonNull RootDiagnosticSettings settings
     ) {
-        EditText latitudeInput = addRootSettingsEdit(content, "纬度", settings.getLocationLatitude());
-        EditText longitudeInput = addRootSettingsEdit(content, "经度", settings.getLocationLongitude());
-        EditText speedInput = addRootSettingsEdit(content, "速度 m/s", settings.getLocationSpeedMetersPerSecond());
+        addRootSettingsText(content, "经纬度、海拔、速度和航向由路线模拟实时联动，Root 模式下采用 GlobalTraveling 接管逻辑，不支持在模块内手动填写。");
         EditText satellitesInput = addRootSettingsEdit(content, "卫星数", settings.getLocationSatellites());
         EditText hdopInput = addRootSettingsEdit(content, "HDOP", settings.getLocationHdop());
         showRootSettingsDialog(RootDiagnosticModule.LOCATION_NMEA, content, () -> saveRootDiagnosticSettings(
                 settings.withLocation(
-                        parseRootSettingDouble(latitudeInput, "纬度"),
-                        parseRootSettingDouble(longitudeInput, "经度"),
-                        parseRootSettingDouble(speedInput, "速度"),
+                        settings.getLocationLatitude(),
+                        settings.getLocationLongitude(),
+                        settings.getLocationSpeedMetersPerSecond(),
+                        settings.getLocationAltitudeMeters(),
+                        settings.getLocationBearingDegrees(),
                         parseRootSettingInt(satellitesInput, "卫星数"),
                         parseRootSettingDouble(hdopInput, "HDOP")
                 )
@@ -3204,6 +3233,18 @@ public class RouteRunActivity extends BaseActivity {
         int padding = Math.round(dp(10f));
         content.setPadding(padding, padding, padding, padding);
         return content;
+    }
+
+    private void addRootSettingsText(@NonNull LinearLayout content, @NonNull String message) {
+        TextView textView = new TextView(this);
+        textView.setText(message);
+        textView.setTextColor(Color.parseColor("#455A64"));
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        textView.setLineSpacing(dp(2f), 1.0f);
+        content.addView(textView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
     }
 
     @NonNull
@@ -3402,6 +3443,8 @@ public class RouteRunActivity extends BaseActivity {
                 lastRouteDiagnosticLatitude,
                 lastRouteDiagnosticLongitude,
                 lastRouteDiagnosticSpeed,
+                lastRouteDiagnosticAltitude,
+                lastRouteDiagnosticBearing,
                 settings.getLocationSatellites(),
                 settings.getLocationHdop()
         );
@@ -3454,11 +3497,19 @@ public class RouteRunActivity extends BaseActivity {
         }
     }
 
-    private void syncRootDiagnosticLocation(double longitude, double latitude, float speed) {
+    private void syncRootDiagnosticLocation(
+            double longitude,
+            double latitude,
+            double altitude,
+            float speed,
+            float bearing
+    ) {
         lastRouteDiagnosticLocationAvailable = true;
         lastRouteDiagnosticLongitude = longitude;
         lastRouteDiagnosticLatitude = latitude;
+        lastRouteDiagnosticAltitude = altitude;
         lastRouteDiagnosticSpeed = speed;
+        lastRouteDiagnosticBearing = bearing;
         if (rootDiagnosticSessionController == null || !rootDiagnosticSessionController.isRunning()) {
             return;
         }
@@ -3466,7 +3517,7 @@ public class RouteRunActivity extends BaseActivity {
         if (!isRootControlsUnlocked(config) || !config.isEnabled(RootFeature.ROOT_NMEA_INJECTION)) {
             return;
         }
-        rootDiagnosticSessionController.syncRouteLocation(longitude, latitude, speed);
+        rootDiagnosticSessionController.syncRouteLocation(longitude, latitude, altitude, speed, bearing);
     }
 
     private void showRootDiagnosticReport(@NonNull RootDiagnosticSessionController.FinishResult result) {
@@ -3705,6 +3756,7 @@ public class RouteRunActivity extends BaseActivity {
                 .setPositiveButton(R.string.route_link_settings_confirm, (dialog, which) -> {
                     rootTestSessionConfirmed = true;
                     rootShellAuthorized = false;
+                    enableDefaultRootModulesForRouteTakeover();
                     appendRootAudit("确认Root测试会话");
                     renderRootEnvironmentReport();
                 })
@@ -5597,7 +5649,7 @@ public class RouteRunActivity extends BaseActivity {
         @Override
         public void pushLocation(double longitude, double latitude, double altitude, float speed, float bearing) {
             updateFloatingWindowPosition(longitude, latitude);
-            syncRootDiagnosticLocation(longitude, latitude, speed);
+            syncRootDiagnosticLocation(longitude, latitude, altitude, speed, bearing);
             if (serviceBinder != null) {
                 serviceBinder.setMotion(longitude, latitude, altitude, speed, bearing);
                 XLog.d("RouteRunActivity: pushed motion directly to ServiceGo");

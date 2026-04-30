@@ -53,11 +53,8 @@ public final class RootFeatureConfig {
     public static RootFeatureConfig defaults() {
         EnumMap<RootFeature, Boolean> defaults = new EnumMap<>(RootFeature.class);
         for (RootFeature feature : RootFeature.values()) {
-            defaults.put(feature, false);
+            defaults.put(feature, true);
         }
-        defaults.put(RootFeature.ENVIRONMENT_INSPECTION, true);
-        defaults.put(RootFeature.ROOT_SHELL_PROBE, true);
-        defaults.put(RootFeature.ENCRYPTED_AUDIT_LOG, true);
         return new RootFeatureConfig(
                 1,
                 System.currentTimeMillis(),
@@ -65,6 +62,22 @@ public final class RootFeatureConfig {
                 InjectionFramework.LSPOSED,
                 "",
                 defaults
+        );
+    }
+
+    @NonNull
+    public RootFeatureConfig withAllFeaturesEnabled() {
+        EnumMap<RootFeature, Boolean> nextSwitches = new EnumMap<>(RootFeature.class);
+        for (RootFeature feature : RootFeature.values()) {
+            nextSwitches.put(feature, true);
+        }
+        return new RootFeatureConfig(
+                version + 1,
+                System.currentTimeMillis(),
+                rootModeEnabled,
+                injectionFramework,
+                targetPackageName,
+                nextSwitches
         );
     }
 

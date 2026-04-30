@@ -4,18 +4,23 @@ import android.annotation.SuppressLint;
 import android.app.Application;
 import android.bluetooth.BluetoothAdapter;
 import android.content.BroadcastReceiver;
+import android.net.ConnectivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.hardware.SensorManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
+import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.net.NetworkInfo;
+import android.net.wifi.ScanResult;
 import android.nfc.NfcAdapter;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Debug;
@@ -23,17 +28,24 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.telephony.CellInfo;
+import android.telephony.PhoneStateListener;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 
 import org.json.JSONObject;
 
 import java.io.File;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -54,6 +66,8 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final ConcurrentHashMap<String, SensorInjectionTarget> sensorInjectionTargets =
             new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, LocationInjectionTarget> locationInjectionTargets =
+            new ConcurrentHashMap<>();
 
     private static volatile boolean active;
     private static volatile String activeSessionId = "";
@@ -65,7 +79,9 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     private static volatile double currentCadence;
     private static volatile long lastSensorLogSecond = -1L;
     private static volatile boolean sensorPulseScheduled;
+    private static volatile boolean locationPulseScheduled;
     private static Handler sensorPulseHandler;
+    private static Handler locationPulseHandler;
 
     static {
         EXCLUDED_PACKAGES.add(MODULE_PACKAGE);
@@ -89,6 +105,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         installSessionReceiver(packageName);
         installLocationHooks(packageName);
         installSignalHooks(packageName);
+        installSdkLocationHooks(packageName, lpparam.classLoader);
         installDetectionBypassHooks(packageName);
         installServiceStreamHooks(packageName);
         installSensorHooks(packageName, lpparam.classLoader);
@@ -161,6 +178,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             );
             active = true;
             resetSensorState();
+            scheduleLocationPulseLoop(packageName);
             scheduleSensorPulseLoop(packageName);
             logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_session_started",
                     "LSPosed作用域诊断已启动，模块数=" + modules.size());
@@ -181,6 +199,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     "lat=" + activeSettings.getLocationLatitude()
                             + ", lon=" + activeSettings.getLocationLongitude()
                             + ", speed=" + activeSettings.getLocationSpeedMetersPerSecond());
+            dispatchSyntheticLocationPulses(packageName);
             return;
         }
         if (LsposedDiagnosticBridge.COMMAND_UPDATE_SETTINGS.equals(command)) {
@@ -190,6 +209,10 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             activeSettings = RootDiagnosticSettings.fromJson(
                     intent.getStringExtra(LsposedDiagnosticBridge.EXTRA_SETTINGS_JSON)
             );
+            if (activeModules.contains(RootDiagnosticModule.LOCATION_NMEA)) {
+                scheduleLocationPulseLoop(packageName);
+                dispatchSyntheticLocationPulses(packageName);
+            }
             if (activeModules.contains(RootDiagnosticModule.SENSOR_INJECTION)) {
                 resetSensorState();
                 scheduleSensorPulseLoop(packageName);
@@ -205,46 +228,163 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             activeSessionId = "";
             activeModules = Collections.newSetFromMap(new ConcurrentHashMap<>());
             resetSensorState();
+            stopLocationPulseLoop();
             stopSensorPulseLoop();
         }
     }
 
     private void installLocationHooks(String packageName) {
+        hookLocationConstructor(packageName);
+        hookLocationCopy(packageName);
+        hookLocationGetters(packageName);
+        hookLocationManagerSurfaces(packageName);
+    }
+
+    private void installSdkLocationHooks(String packageName, ClassLoader classLoader) {
+        hookGmsLocationResult(packageName, classLoader);
+        hookOptionalNoArg(
+                packageName,
+                classLoader,
+                "com.google.android.gms.location.LocationAvailability",
+                "isLocationAvailable",
+                RootDiagnosticModule.LOCATION_NMEA,
+                () -> true
+        );
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getLatitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationLatitude());
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getLongitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationLongitude());
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getAccuracy", RootDiagnosticModule.LOCATION_NMEA,
+                () -> (float) Math.max(3d, activeSettings.getLocationHdop() * 2.5d));
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getSpeed", RootDiagnosticModule.LOCATION_NMEA,
+                () -> (float) activeSettings.getLocationSpeedMetersPerSecond());
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getAltitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationAltitudeMeters());
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getBearing", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationBearingDegrees());
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getLocationType", RootDiagnosticModule.LOCATION_NMEA, () -> 1);
+        hookOptionalNoArg(packageName, classLoader, "com.amap.api.location.AMapLocation",
+                "getErrorCode", RootDiagnosticModule.LOCATION_NMEA, () -> 0);
+
+        hookOptionalNoArg(packageName, classLoader, "com.tencent.map.geolocation.TencentLocation",
+                "getLatitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationLatitude());
+        hookOptionalNoArg(packageName, classLoader, "com.tencent.map.geolocation.TencentLocation",
+                "getLongitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationLongitude());
+        hookOptionalNoArg(packageName, classLoader, "com.tencent.map.geolocation.TencentLocation",
+                "getAccuracy", RootDiagnosticModule.LOCATION_NMEA,
+                () -> (float) Math.max(3d, activeSettings.getLocationHdop() * 2.5d));
+        hookOptionalNoArg(packageName, classLoader, "com.tencent.map.geolocation.TencentLocation",
+                "getSpeed", RootDiagnosticModule.LOCATION_NMEA,
+                () -> (float) activeSettings.getLocationSpeedMetersPerSecond());
+        hookOptionalNoArg(packageName, classLoader, "com.tencent.map.geolocation.TencentLocation",
+                "getAltitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationAltitudeMeters());
+        hookOptionalNoArg(packageName, classLoader, "com.tencent.map.geolocation.TencentLocation",
+                "getBearing", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationBearingDegrees());
+        hookOptionalNoArg(packageName, classLoader, "com.tencent.map.geolocation.TencentLocation",
+                "getProvider", RootDiagnosticModule.LOCATION_NMEA, () -> LocationManager.GPS_PROVIDER);
+
+        hookOptionalNoArg(packageName, classLoader, "com.baidu.location.BDLocation",
+                "getLatitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationLatitude());
+        hookOptionalNoArg(packageName, classLoader, "com.baidu.location.BDLocation",
+                "getLongitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationLongitude());
+        hookOptionalNoArg(packageName, classLoader, "com.baidu.location.BDLocation",
+                "getRadius", RootDiagnosticModule.LOCATION_NMEA,
+                () -> (float) Math.max(3d, activeSettings.getLocationHdop() * 2.5d));
+        hookOptionalNoArg(packageName, classLoader, "com.baidu.location.BDLocation",
+                "getSpeed", RootDiagnosticModule.LOCATION_NMEA,
+                () -> (float) activeSettings.getLocationSpeedMetersPerSecond());
+        hookOptionalNoArg(packageName, classLoader, "com.baidu.location.BDLocation",
+                "getAltitude", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationAltitudeMeters());
+        hookOptionalNoArg(packageName, classLoader, "com.baidu.location.BDLocation",
+                "getDirection", RootDiagnosticModule.LOCATION_NMEA, () -> activeSettings.getLocationBearingDegrees());
+        hookOptionalNoArg(packageName, classLoader, "com.baidu.location.BDLocation",
+                "getLocType", RootDiagnosticModule.LOCATION_NMEA, () -> 61);
+    }
+
+    private void hookGmsLocationResult(String packageName, ClassLoader classLoader) {
         try {
-            XposedHelpers.findAndHookMethod(Location.class, "getLatitude", new XC_MethodHook() {
+            Class<?> locationResultClass = XposedHelpers.findClass(
+                    "com.google.android.gms.location.LocationResult",
+                    classLoader
+            );
+            XposedBridge.hookAllMethods(locationResultClass, "getLastLocation", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                        return;
+                    }
+                    param.setResult(createSyntheticLocation("fused"));
+                    logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "return_override",
+                            "GMS LocationResult.getLastLocation");
+                }
+            });
+            XposedBridge.hookAllMethods(locationResultClass, "getLocations", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                        return;
+                    }
+                    List<Location> locations = new ArrayList<>();
+                    locations.add(createSyntheticLocation("fused"));
+                    locations.add(createSyntheticLocation(LocationManager.GPS_PROVIDER));
+                    param.setResult(locations);
+                    logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "return_override",
+                            "GMS LocationResult.getLocations");
+                }
+            });
+            logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "hook_installed",
+                    "GMS LocationResult");
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag GMS LocationResult hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookLocationConstructor(String packageName) {
+        try {
+            XposedHelpers.findAndHookConstructor(Location.class, String.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
                     if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
-                        param.setResult(activeSettings.getLocationLatitude());
-                        logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "return_override",
-                                "Location.getLatitude");
+                        applySyntheticLocation(packageName, (Location) param.thisObject);
                     }
                 }
             });
-            XposedHelpers.findAndHookMethod(Location.class, "getLongitude", new XC_MethodHook() {
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag Location constructor hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookLocationCopy(String packageName) {
+        try {
+            XposedHelpers.findAndHookMethod(Location.class, "set", Location.class, new XC_MethodHook() {
                 @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
+                protected void afterHookedMethod(MethodHookParam param) {
                     if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
-                        param.setResult(activeSettings.getLocationLongitude());
+                        applySyntheticLocation(packageName, (Location) param.thisObject);
                     }
                 }
             });
-            XposedHelpers.findAndHookMethod(Location.class, "getSpeed", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
-                        param.setResult((float) activeSettings.getLocationSpeedMetersPerSecond());
-                    }
-                }
-            });
-            XposedHelpers.findAndHookMethod(Location.class, "hasSpeed", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
-                        param.setResult(true);
-                    }
-                }
-            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag Location.set hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookLocationGetters(String packageName) {
+        hookLocationGetter("getLatitude", activeSettings.getLocationLatitude());
+        hookLocationGetter("getLongitude", activeSettings.getLocationLongitude());
+        hookLocationGetter("getAccuracy", (float) Math.max(3d, activeSettings.getLocationHdop() * 2.5d));
+        hookLocationGetter("getSpeed", (float) activeSettings.getLocationSpeedMetersPerSecond());
+        hookLocationGetter("getAltitude", activeSettings.getLocationAltitudeMeters());
+        hookLocationGetter("getBearing", activeSettings.getLocationBearingDegrees());
+        hookLocationBooleanGetter("hasSpeed");
+        hookLocationBooleanGetter("hasAccuracy");
+        hookLocationBooleanGetter("hasAltitude");
+        hookLocationBooleanGetter("hasBearing");
+        hookLocationBooleanGetter("isFromMockProvider", false);
+        try {
             XposedHelpers.findAndHookMethod(Location.class, "getExtras", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
@@ -252,15 +392,145 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                         return;
                     }
                     Bundle extras = param.getResult() instanceof Bundle ? (Bundle) param.getResult() : new Bundle();
-                    extras.putInt("satellites", activeSettings.getLocationSatellites());
-                    extras.putDouble("hdop", activeSettings.getLocationHdop());
+                    fillLocationExtras(extras);
                     param.setResult(extras);
+                    logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "return_override",
+                            "Location.getExtras");
                 }
             });
-            hookLocationManagerRegisterMethods(packageName, LocationManager.class);
         } catch (Throwable throwable) {
-            XposedBridge.log("SchoolRunDiag location hooks failed: " + throwable.getMessage());
+            XposedBridge.log("SchoolRunDiag Location.getExtras hook skipped: " + throwable.getMessage());
         }
+    }
+
+    private void hookLocationGetter(String methodName, Object ignoredDefaultValue) {
+        try {
+            XposedHelpers.findAndHookMethod(Location.class, methodName, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                        return;
+                    }
+                    switch (methodName) {
+                        case "getLatitude":
+                            param.setResult(activeSettings.getLocationLatitude());
+                            break;
+                        case "getLongitude":
+                            param.setResult(activeSettings.getLocationLongitude());
+                            break;
+                        case "getAccuracy":
+                            param.setResult((float) Math.max(3d, activeSettings.getLocationHdop() * 2.5d));
+                            break;
+                        case "getSpeed":
+                            param.setResult((float) activeSettings.getLocationSpeedMetersPerSecond());
+                            break;
+                        case "getAltitude":
+                            param.setResult(activeSettings.getLocationAltitudeMeters());
+                            break;
+                        case "getBearing":
+                            param.setResult(activeSettings.getLocationBearingDegrees());
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag Location." + methodName + " hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookLocationBooleanGetter(String methodName) {
+        hookLocationBooleanGetter(methodName, true);
+    }
+
+    private void hookLocationBooleanGetter(String methodName, boolean value) {
+        try {
+            XposedHelpers.findAndHookMethod(Location.class, methodName, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                        param.setResult(value);
+                    }
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag Location." + methodName + " hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookLocationManagerSurfaces(String packageName) {
+        try {
+            XposedBridge.hookAllMethods(LocationManager.class, "getLastKnownLocation", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                        return;
+                    }
+                    Location location = param.getResult() instanceof Location ? (Location) param.getResult() : null;
+                    if (location == null) {
+                        String provider = param.args != null && param.args.length > 0 && param.args[0] instanceof String
+                                ? (String) param.args[0]
+                                : LocationManager.GPS_PROVIDER;
+                        location = createSyntheticLocation(provider);
+                    } else {
+                        applySyntheticLocation(packageName, location);
+                    }
+                    param.setResult(location);
+                    logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "return_override",
+                            "LocationManager.getLastKnownLocation");
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag getLastKnownLocation hook skipped: " + throwable.getMessage());
+        }
+        try {
+            XposedBridge.hookAllMethods(LocationManager.class, "isProviderEnabled", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)
+                            || param.args == null
+                            || param.args.length == 0
+                            || !(param.args[0] instanceof String)) {
+                        return;
+                    }
+                    String provider = (String) param.args[0];
+                    if (LocationManager.GPS_PROVIDER.equals(provider)
+                            || LocationManager.NETWORK_PROVIDER.equals(provider)) {
+                        param.setResult(true);
+                    }
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag isProviderEnabled hook skipped: " + throwable.getMessage());
+        }
+        try {
+            XposedBridge.hookAllMethods(LocationManager.class, "addNmeaListener", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                        param.setResult(true);
+                    }
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag addNmeaListener hook skipped: " + throwable.getMessage());
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 24) {
+                XposedHelpers.findAndHookMethod(GnssStatus.class, "getSatelliteCount", new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                            param.setResult(activeSettings.getLocationSatellites());
+                        }
+                    }
+                });
+            }
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag GnssStatus hook skipped: " + throwable.getMessage());
+        }
+        hookLocationManagerRegisterMethods(packageName, LocationManager.class);
     }
 
     private void hookLocationManagerRegisterMethods(String packageName, Class<?> managerClass) {
@@ -268,19 +538,27 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             if (!"requestLocationUpdates".equals(method.getName())) {
                 continue;
             }
-            XposedBridge.hookMethod(method, new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
-                        return;
-                    }
-                    for (Object arg : param.args) {
-                        if (arg instanceof LocationListener) {
-                            hookLocationListener(packageName, (LocationListener) arg);
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        for (Object arg : param.args) {
+                            if (arg instanceof LocationListener) {
+                                LocationListener listener = (LocationListener) arg;
+                                hookLocationListener(packageName, listener);
+                                registerLocationInjectionTarget(listener);
+                                if (isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                                    dispatchSyntheticLocation(packageName, listener);
+                                    scheduleLocationPulseLoop(packageName);
+                                }
+                            }
                         }
                     }
-                }
-            });
+                });
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag requestLocationUpdates overload skipped: "
+                        + method + " " + throwable.getMessage());
+            }
         }
     }
 
@@ -299,16 +577,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     }
                     if (param.args.length > 0 && param.args[0] instanceof Location) {
                         Location location = (Location) param.args[0];
-                        location.setLatitude(activeSettings.getLocationLatitude());
-                        location.setLongitude(activeSettings.getLocationLongitude());
-                        location.setSpeed((float) activeSettings.getLocationSpeedMetersPerSecond());
-                        Bundle extras = location.getExtras();
-                        if (extras == null) {
-                            extras = new Bundle();
-                        }
-                        extras.putInt("satellites", activeSettings.getLocationSatellites());
-                        extras.putDouble("hdop", activeSettings.getLocationHdop());
-                        location.setExtras(extras);
+                        applySyntheticLocation(packageName, location);
                         logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "data_injected",
                                 "LocationListener.onLocationChanged -> " + className);
                     }
@@ -319,7 +588,139 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         }
     }
 
+    private void registerLocationInjectionTarget(LocationListener listener) {
+        if (listener == null) {
+            return;
+        }
+        String key = String.valueOf(System.identityHashCode(listener));
+        locationInjectionTargets.put(key, new LocationInjectionTarget(listener));
+    }
+
+    private void scheduleLocationPulseLoop(String packageName) {
+        if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)
+                || locationInjectionTargets.isEmpty()
+                || locationPulseScheduled) {
+            return;
+        }
+        Handler handler = getLocationPulseHandler();
+        if (handler == null) {
+            return;
+        }
+        locationPulseScheduled = true;
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+                    locationPulseScheduled = false;
+                    return;
+                }
+                dispatchSyntheticLocationPulses(packageName);
+                Handler nextHandler = getLocationPulseHandler();
+                if (nextHandler != null) {
+                    nextHandler.postDelayed(this, 500L);
+                } else {
+                    locationPulseScheduled = false;
+                }
+            }
+        });
+    }
+
+    private void stopLocationPulseLoop() {
+        locationPulseScheduled = false;
+        Handler handler = locationPulseHandler;
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
+    }
+
+    private Handler getLocationPulseHandler() {
+        if (locationPulseHandler != null) {
+            return locationPulseHandler;
+        }
+        try {
+            locationPulseHandler = new Handler(Looper.getMainLooper());
+            return locationPulseHandler;
+        } catch (Throwable throwable) {
+            return null;
+        }
+    }
+
+    private void dispatchSyntheticLocationPulses(String packageName) {
+        if (!isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+            return;
+        }
+        for (LocationInjectionTarget target : locationInjectionTargets.values()) {
+            dispatchSyntheticLocation(packageName, target.listener);
+        }
+    }
+
+    private void dispatchSyntheticLocation(String packageName, LocationListener listener) {
+        Handler handler = getLocationPulseHandler();
+        if (handler == null || listener == null) {
+            return;
+        }
+        handler.post(() -> {
+            try {
+                listener.onLocationChanged(createSyntheticLocation(LocationManager.GPS_PROVIDER));
+            } catch (Throwable throwable) {
+                XposedBridge.log("SchoolRunDiag synthetic location pulse skipped: " + throwable.getMessage());
+                logEvent(packageName, RootDiagnosticModule.LOCATION_NMEA, "synthetic_location_skipped",
+                        throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+            }
+        });
+    }
+
+    private Location createSyntheticLocation(String provider) {
+        Location location = new Location(provider == null || provider.trim().isEmpty()
+                ? LocationManager.GPS_PROVIDER
+                : provider);
+        applySyntheticLocation("", location);
+        return location;
+    }
+
+    private void applySyntheticLocation(String packageName, Location location) {
+        if (location == null || !isModuleActive(RootDiagnosticModule.LOCATION_NMEA)) {
+            return;
+        }
+        try {
+            location.setLatitude(activeSettings.getLocationLatitude());
+            location.setLongitude(activeSettings.getLocationLongitude());
+            location.setAccuracy((float) Math.max(3d, activeSettings.getLocationHdop() * 2.5d));
+            location.setSpeed((float) activeSettings.getLocationSpeedMetersPerSecond());
+            location.setAltitude(activeSettings.getLocationAltitudeMeters());
+            location.setBearing(activeSettings.getLocationBearingDegrees());
+            location.setTime(System.currentTimeMillis());
+            if (Build.VERSION.SDK_INT >= 17) {
+                location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+            }
+            Bundle extras = new Bundle();
+            fillLocationExtras(extras);
+            location.setExtras(extras);
+            try {
+                XposedHelpers.setBooleanField(location, "mIsFromMockProvider", false);
+            } catch (Throwable ignored) {
+                // Android vendors keep this field private or rename it; getter hook still returns false.
+            }
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag applySyntheticLocation failed: " + throwable.getMessage());
+        }
+    }
+
+    private void fillLocationExtras(Bundle extras) {
+        extras.putInt("satellites", activeSettings.getLocationSatellites());
+        extras.putInt("satelliteCount", activeSettings.getLocationSatellites());
+        extras.putDouble("hdop", activeSettings.getLocationHdop());
+        extras.putString("source", LocationManager.GPS_PROVIDER);
+        extras.putBoolean("mockLocation", false);
+    }
+
     private void installSignalHooks(String packageName) {
+        hookWifiSurfaces(packageName);
+        hookRadioSurfaces(packageName);
+        hookNetworkSurfaces(packageName);
+    }
+
+    private void hookWifiSurfaces(String packageName) {
         try {
             XposedHelpers.findAndHookMethod(WifiInfo.class, "getBSSID", returnStringHook(
                     packageName,
@@ -333,6 +734,48 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     "WifiInfo.getSSID",
                     () -> "\"" + activeSettings.getWifiSsid() + "\""
             ));
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag WifiInfo getter hooks skipped: " + throwable.getMessage());
+        }
+        try {
+            XposedHelpers.findAndHookMethod(WifiManager.class, "getConnectionInfo", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)
+                            || !(param.getResult() instanceof WifiInfo)) {
+                        return;
+                    }
+                    WifiInfo info = (WifiInfo) param.getResult();
+                    setObjectFieldQuietly(info, "mBSSID", activeSettings.getWifiBssid());
+                    setObjectFieldQuietly(info, "mSSID", "\"" + activeSettings.getWifiSsid() + "\"");
+                    setObjectFieldQuietly(info, "mMacAddress", "02:00:00:00:00:00");
+                    setIntFieldQuietly(info, "mRssi", -45 - (int) (Math.random() * 10d));
+                    logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "data_injected",
+                            "WifiManager.getConnectionInfo");
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag WifiManager.getConnectionInfo hook skipped: " + throwable.getMessage());
+        }
+        try {
+            XposedHelpers.findAndHookMethod(WifiManager.class, "getScanResults", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                        return;
+                    }
+                    param.setResult(createWifiScanResults());
+                    logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "return_override",
+                            "WifiManager.getScanResults");
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag WifiManager.getScanResults hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookRadioSurfaces(String packageName) {
+        try {
             XposedHelpers.findAndHookMethod(TelephonyManager.class, "getNetworkOperator", returnStringHook(
                     packageName,
                     RootDiagnosticModule.RADIO_WIFI_SIGNAL,
@@ -357,8 +800,141 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                     "TelephonyManager.getSimCountryIso",
                     () -> activeSettings.getNetworkCountry()
             ));
+            XposedHelpers.findAndHookMethod(TelephonyManager.class, "getNetworkType", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                        param.setResult(TelephonyManager.NETWORK_TYPE_UNKNOWN);
+                    }
+                }
+            });
+            XposedHelpers.findAndHookMethod(TelephonyManager.class, "getAllCellInfo", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                        param.setResult(new ArrayList<CellInfo>());
+                        logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "return_override",
+                                "TelephonyManager.getAllCellInfo");
+                    }
+                }
+            });
+            XposedHelpers.findAndHookMethod(TelephonyManager.class, "getCellLocation", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                        param.setResult(null);
+                    }
+                }
+            });
+            XposedHelpers.findAndHookMethod(TelephonyManager.class, "listen", PhoneStateListener.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)
+                                    && param.args != null
+                                    && param.args.length > 1) {
+                                param.args[1] = PhoneStateListener.LISTEN_NONE;
+                            }
+                        }
+                    });
         } catch (Throwable throwable) {
             XposedBridge.log("SchoolRunDiag signal hooks failed: " + throwable.getMessage());
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                XposedHelpers.findAndHookMethod(TelephonyManager.class, "requestCellInfoUpdate",
+                        Executor.class, TelephonyManager.CellInfoCallback.class, new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam param) {
+                                if (!isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)
+                                        || param.args == null
+                                        || param.args.length < 2) {
+                                    return;
+                                }
+                                Executor executor = (Executor) param.args[0];
+                                TelephonyManager.CellInfoCallback callback =
+                                        (TelephonyManager.CellInfoCallback) param.args[1];
+                                if (executor != null && callback != null) {
+                                    executor.execute(() -> callback.onCellInfo(new ArrayList<CellInfo>()));
+                                }
+                                param.setResult(null);
+                            }
+                        });
+            }
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag requestCellInfoUpdate hook skipped: " + throwable.getMessage());
+        }
+        try {
+            XposedHelpers.findAndHookMethod(SubscriptionManager.class, "getActiveSubscriptionInfoList",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)) {
+                                param.setResult(new ArrayList<SubscriptionInfo>());
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag SubscriptionManager hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private void hookNetworkSurfaces(String packageName) {
+        try {
+            XposedHelpers.findAndHookMethod(ConnectivityManager.class, "getActiveNetworkInfo", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(RootDiagnosticModule.RADIO_WIFI_SIGNAL)
+                            || !(param.getResult() instanceof NetworkInfo)) {
+                        return;
+                    }
+                    NetworkInfo info = (NetworkInfo) param.getResult();
+                    setIntFieldQuietly(info, "mNetworkType", ConnectivityManager.TYPE_WIFI);
+                    setObjectFieldQuietly(info, "mTypeName", "WIFI");
+                    setObjectFieldQuietly(info, "mState", NetworkInfo.State.CONNECTED);
+                    logEvent(packageName, RootDiagnosticModule.RADIO_WIFI_SIGNAL, "data_injected",
+                            "ConnectivityManager.getActiveNetworkInfo");
+                }
+            });
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag ConnectivityManager hook skipped: " + throwable.getMessage());
+        }
+    }
+
+    private List<ScanResult> createWifiScanResults() {
+        List<ScanResult> results = new ArrayList<>();
+        try {
+            Constructor<ScanResult> constructor = ScanResult.class.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            ScanResult result = constructor.newInstance();
+            result.SSID = activeSettings.getWifiSsid();
+            result.BSSID = activeSettings.getWifiBssid();
+            result.level = -45 - (int) (Math.random() * 10d);
+            result.capabilities = "[WPA2-PSK-CCMP][ESS]";
+            result.frequency = 2412;
+            if (Build.VERSION.SDK_INT >= 17) {
+                result.timestamp = SystemClock.elapsedRealtime() * 1000L;
+            }
+            results.add(result);
+        } catch (Throwable ignored) {
+            // Some vendor frameworks block ScanResult construction; return an empty controlled list.
+        }
+        return results;
+    }
+
+    private void setObjectFieldQuietly(Object instance, String fieldName, Object value) {
+        try {
+            XposedHelpers.setObjectField(instance, fieldName, value);
+        } catch (Throwable ignored) {
+            // Field layout differs across Android releases and vendors.
+        }
+    }
+
+    private void setIntFieldQuietly(Object instance, String fieldName, int value) {
+        try {
+            XposedHelpers.setIntField(instance, fieldName, value);
+        } catch (Throwable ignored) {
+            // Field layout differs across Android releases and vendors.
         }
     }
 
@@ -552,7 +1128,10 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
             Handler handler
     ) {
         int type = sensor.getType();
-        if (type != Sensor.TYPE_STEP_COUNTER && type != Sensor.TYPE_STEP_DETECTOR && type != 19) {
+        if (type != Sensor.TYPE_ACCELEROMETER
+                && type != Sensor.TYPE_STEP_COUNTER
+                && type != Sensor.TYPE_STEP_DETECTOR
+                && type != 19) {
             return;
         }
         String key = System.identityHashCode(listener) + ":" + type;
@@ -662,7 +1241,7 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                 dispatchSyntheticSensorPulses(packageName);
                 Handler nextHandler = getSensorPulseHandler();
                 if (nextHandler != null) {
-                    nextHandler.postDelayed(this, 500L);
+                    nextHandler.postDelayed(this, 100L);
                 } else {
                     sensorPulseScheduled = false;
                 }
@@ -721,12 +1300,23 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         }
         targetHandler.post(() -> {
             try {
-                SensorEvent event = (SensorEvent) XposedHelpers.newInstance(SensorEvent.class, 1);
+                int type = target.sensor.getType();
+                SensorEvent event = (SensorEvent) XposedHelpers.newInstance(
+                        SensorEvent.class,
+                        type == Sensor.TYPE_ACCELEROMETER ? 3 : 1
+                );
                 event.sensor = target.sensor;
                 event.accuracy = SensorManager.SENSOR_STATUS_ACCURACY_HIGH;
                 event.timestamp = SystemClock.elapsedRealtimeNanos();
-                int type = target.sensor.getType();
-                if (type == Sensor.TYPE_STEP_COUNTER || type == 19) {
+                if (type == Sensor.TYPE_ACCELEROMETER && event.values.length >= 3) {
+                    double frequency = Math.max(0.1d, currentCadence / 60d);
+                    double phase = elapsedSeconds * Math.PI * 2d * frequency;
+                    event.values[0] = (float) ((Math.random() * 0.1d) - 0.05d);
+                    event.values[1] = (float) (Math.cos(phase) * 1.5d + ((Math.random() * 0.3d) - 0.15d));
+                    event.values[2] = (float) (9.81d
+                            + Math.sin(phase) * activeSettings.getSensorWaveAmplitude()
+                            + ((Math.random() * 0.3d) - 0.15d));
+                } else if (type == Sensor.TYPE_STEP_COUNTER || type == 19) {
                     if (stepBaseOffset < 0f) {
                         stepBaseOffset = 0f;
                     }
@@ -766,6 +1356,32 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
         };
     }
 
+    private void hookOptionalNoArg(
+            String packageName,
+            ClassLoader classLoader,
+            String className,
+            String methodName,
+            RootDiagnosticModule module,
+            ObjectSupplier supplier
+    ) {
+        try {
+            Class<?> targetClass = XposedHelpers.findClass(className, classLoader);
+            XposedBridge.hookAllMethods(targetClass, methodName, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isModuleActive(module)) {
+                        return;
+                    }
+                    param.setResult(supplier.get());
+                }
+            });
+            logEvent(packageName, module, "hook_installed", className + "." + methodName);
+        } catch (Throwable throwable) {
+            XposedBridge.log("SchoolRunDiag optional hook skipped: "
+                    + className + "." + methodName + " " + throwable.getMessage());
+        }
+    }
+
     private boolean isModuleActive(RootDiagnosticModule module) {
         return active && activeModules.contains(module);
     }
@@ -773,7 +1389,8 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
     private static boolean shouldSkipPackage(String packageName) {
         return EXCLUDED_PACKAGES.contains(packageName)
                 || packageName.startsWith("com.android.")
-                || packageName.startsWith("com.google.android.");
+                || (packageName.startsWith("com.google.android.")
+                && !"com.google.android.gms".equals(packageName));
     }
 
     private static void resetSensorState() {
@@ -812,6 +1429,18 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
 
     private interface StringSupplier {
         String get();
+    }
+
+    private interface ObjectSupplier {
+        Object get();
+    }
+
+    private static final class LocationInjectionTarget {
+        private final LocationListener listener;
+
+        private LocationInjectionTarget(LocationListener listener) {
+            this.listener = listener;
+        }
     }
 
     private static final class SensorInjectionTarget {
