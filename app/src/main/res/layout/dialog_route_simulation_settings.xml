@@ -642,6 +642,33 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:text="@string/route_altitude_base_label" />
+
+                        <EditText
+                            android:id="@+id/et_dialog_altitude_base"
+                            android:layout_width="72dp"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:hint="@string/route_altitude_base_hint"
+                            android:inputType="numberDecimal"
+                            android:text="55.0" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/route_distance_unit" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
                             android:text="@string/route_altitude_variation_range_label" />
 
                         <EditText

@@ -285,7 +285,7 @@ public final class RouteSimulationEngine {
             return basePoint;
         }
 
-        double baseAltitude = basePoint.getAltitude() + (config.getAltitudeVariationHeightCentimeters() / 100d);
+        double baseAltitude = config.getAltitudeBaseMeters() + (config.getAltitudeVariationHeightCentimeters() / 100d);
         double range = config.getAltitudeVariationRangeMeters();
         double probability = config.getAltitudeVariationProbability();
         if (range <= 0d || probability <= 0d) {

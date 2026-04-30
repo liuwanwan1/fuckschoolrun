@@ -98,6 +98,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.acooldog.toolbox.service.ServiceGo;
+import com.acooldog.toolbox.config.SimulationPrefsStore;
 import com.acooldog.toolbox.database.DataBaseHistoryLocation;
 import com.acooldog.toolbox.database.DataBaseHistorySearch;
 import com.acooldog.toolbox.utils.ShareUtils;
@@ -1027,7 +1028,7 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
         double[] latLng = MapUtils.bd2wgs(mMarkLatLngMap.longitude, mMarkLatLngMap.latitude);
         serviceGoIntent.putExtra(LNG_MSG_ID, latLng[0]);
         serviceGoIntent.putExtra(LAT_MSG_ID, latLng[1]);
-        double alt = Double.parseDouble(sharedPreferences.getString("setting_altitude", "55.0"));
+        double alt = resolveSimulationAltitudeMeters();
         serviceGoIntent.putExtra(ALT_MSG_ID, alt);
 
         startForegroundService(serviceGoIntent);
@@ -1041,6 +1042,14 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
         Intent serviceGoIntent = new Intent(MainActivity.this, ServiceGo.class);
         stopService(serviceGoIntent);
         isMockServStart = false;
+    }
+
+    private double resolveSimulationAltitudeMeters() {
+        try {
+            return Double.parseDouble(new SimulationPrefsStore(getApplicationContext()).getRouteAltitudeBaseMeters());
+        } catch (Exception ignored) {
+            return 55.0d;
+        }
     }
 
     private void doGoLocation(View v) {
@@ -1068,7 +1077,7 @@ public class MainActivity extends BaseActivity implements SensorEventListener {
                 mButtonStart.setImageResource(R.drawable.ic_position);
             } else {
                 double[] latLng = MapUtils.bd2wgs(mMarkLatLngMap.longitude, mMarkLatLngMap.latitude);
-                double alt = Double.parseDouble(sharedPreferences.getString("setting_altitude", "55.0"));
+                double alt = resolveSimulationAltitudeMeters();
                 mServiceBinder.setPosition(latLng[0], latLng[1], alt);
                 Snackbar.make(v, "已传送到新位置", Snackbar.LENGTH_LONG)
                         .setAction("Action", null).show();

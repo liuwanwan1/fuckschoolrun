@@ -1,6 +1,7 @@
 package com.acooldog.toolbox.share.domain.model;
 
 public final class InternalAccountProfile {
+    public static final String TYPE_NONE = "";
     public static final String TYPE_ORDINARY = "ordinary";
     public static final String TYPE_ADVANCED = "advanced";
     public static final String TYPE_DONOR = "donor";
@@ -61,6 +62,17 @@ public final class InternalAccountProfile {
         return "active".equalsIgnoreCase(status);
     }
 
+    public boolean hasTesterType() {
+        return !testerType.isEmpty();
+    }
+
+    public boolean canUseRootDiagnostics() {
+        return isActive()
+                && (TYPE_ORDINARY.equals(testerType)
+                || TYPE_ADVANCED.equals(testerType)
+                || TYPE_PIONEER.equals(testerType));
+    }
+
     private static String normalizeTesterType(String value) {
         String normalized = value == null ? "" : value.trim().toLowerCase();
         switch (normalized) {
@@ -70,7 +82,7 @@ public final class InternalAccountProfile {
             case TYPE_ORDINARY:
                 return normalized;
             default:
-                return TYPE_ORDINARY;
+                return TYPE_NONE;
         }
     }
 
@@ -86,8 +98,9 @@ public final class InternalAccountProfile {
             case TYPE_PIONEER:
                 return "先锋测试账号";
             case TYPE_ORDINARY:
-            default:
                 return "普通测试账号";
+            default:
+                return "未分类账号";
         }
     }
 

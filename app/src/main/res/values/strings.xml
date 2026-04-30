@@ -61,8 +61,6 @@
     <string name="setting_run_default">3.6</string>
     <string name="setting_bike">驾驶速度(米/秒)</string>
     <string name="setting_bike_default">10.0</string>
-    <string name="setting_altitude">海拔高度(米)</string>
-    <string name="setting_altitude_default">55.0</string>
     <string name="setting_location">位置</string>
     <string name="setting_random_offset">随机偏移</string>
     <string name="setting_random_offset_summary">仅在使用历史位置时生效</string>
@@ -259,8 +257,6 @@
     <string name="setting_user_agreement">用户协议</string>
     <string name="setting_disclaimer">免责声明</string>
     <string name="setting_bilibili_link">Bilibili 主页</string>
-    <string name="setting_yingsuo_link">影梭链接</string>
-    <string name="setting_yingsuo_link_summary">https://github.com/ZCShou/GoGoGo</string>
     <string name="setting_reference_link">参考的链接</string>
     <string name="setting_reference_link_summary">https://github.com/DuckXiu/GoGoGo</string>
     <string name="setting_project_link">项目链接</string>
@@ -359,8 +355,8 @@
     <string name="route_root_status_not_detected">Root状态：未检测到Root迹象，建议使用非Root模式。</string>
     <string name="route_root_status_detected">Root状态：检测到Root迹象。</string>
     <string name="route_root_status_detail">Root管理器：%1$s\nsu路径：%2$s\nsu入口：%3$s</string>
-    <string name="route_root_internal_enabled">内测开关：已启用。</string>
-    <string name="route_root_internal_disabled">内测开关：未启用，Root功能仅显示检测结果。</string>
+    <string name="route_root_internal_enabled">Root账号权限：已启用。</string>
+    <string name="route_root_internal_disabled">Root账号权限：未启用。</string>
     <string name="route_root_mode_switch">Root模式总开关</string>
     <string name="route_root_mode_locked_hint">开启后才显示Root高级控件；未检测到Root时不可开启。</string>
     <string name="route_root_mode_enabled_hint">Root模式已开启，高级控件仅在本机检测到Root时可用。</string>
@@ -380,7 +376,7 @@
     <string name="route_root_confirm_message">本会话仅用于我司自有或已获授权应用的单目标诊断测试，禁止用于第三方应用、生产环境或用户设备。是否继续？</string>
     <string name="route_root_request_su_title">请求Root授权</string>
     <string name="route_root_request_su_message">系统可能弹出Root授权。本次先执行 su -c id 确认授权状态；LSPosed模式下目标APK由作用域选择限定。</string>
-    <string name="route_root_need_internal">当前不是内测构建，Root测试操作已禁用。</string>
+    <string name="route_root_need_internal">当前账号无Root测试权限，请使用普通测试账号、高级测试账号或先锋测试账号登录。</string>
     <string name="route_root_need_session_confirm">请先确认本次Root测试会话。</string>
     <string name="route_root_no_root_switch_hint">未检测到Root迹象，已建议切换到非Root模式。</string>
     <string name="route_root_hidden_normal">隐藏Root状态：未发现Root隐藏迹象。</string>

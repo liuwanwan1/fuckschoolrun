@@ -13,6 +13,7 @@ public final class SharedSimulationConfigEntry {
     private final boolean naturalPathVariationEnabled;
     private final double pathVariationAmplitude;
     private final boolean naturalAltitudeVariationEnabled;
+    private final double altitudeBaseMeters;
     private final double altitudeVariationRange;
     private final double altitudeVariationHeightCentimeters;
     private final double altitudeVariationProbability;
@@ -35,6 +36,7 @@ public final class SharedSimulationConfigEntry {
             boolean naturalPathVariationEnabled,
             double pathVariationAmplitude,
             boolean naturalAltitudeVariationEnabled,
+            double altitudeBaseMeters,
             double altitudeVariationRange,
             double altitudeVariationHeightCentimeters,
             double altitudeVariationProbability,
@@ -56,6 +58,7 @@ public final class SharedSimulationConfigEntry {
         this.naturalPathVariationEnabled = naturalPathVariationEnabled;
         this.pathVariationAmplitude = pathVariationAmplitude;
         this.naturalAltitudeVariationEnabled = naturalAltitudeVariationEnabled;
+        this.altitudeBaseMeters = altitudeBaseMeters;
         this.altitudeVariationRange = altitudeVariationRange;
         this.altitudeVariationHeightCentimeters = altitudeVariationHeightCentimeters;
         this.altitudeVariationProbability = altitudeVariationProbability;
@@ -112,6 +115,10 @@ public final class SharedSimulationConfigEntry {
 
     public boolean isNaturalAltitudeVariationEnabled() {
         return naturalAltitudeVariationEnabled;
+    }
+
+    public double getAltitudeBaseMeters() {
+        return altitudeBaseMeters;
     }
 
     public double getAltitudeVariationRange() {

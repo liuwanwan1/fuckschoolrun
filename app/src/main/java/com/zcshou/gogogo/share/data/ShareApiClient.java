@@ -309,6 +309,7 @@ public final class ShareApiClient {
             bodyJson.put("naturalPathVariationEnabled", config.isNaturalPathVariationEnabled());
             bodyJson.put("pathVariationAmplitude", config.getPathVariationAmplitudeMeters());
             bodyJson.put("naturalAltitudeVariationEnabled", config.isNaturalAltitudeVariationEnabled());
+            bodyJson.put("altitudeBaseMeters", config.getAltitudeBaseMeters());
             bodyJson.put("altitudeVariationRange", config.getAltitudeVariationRangeMeters());
             bodyJson.put("altitudeVariationHeightCentimeters", config.getAltitudeVariationHeightCentimeters());
             bodyJson.put("altitudeVariationProbability", config.getAltitudeVariationProbability());
@@ -602,6 +603,7 @@ public final class ShareApiClient {
                 optBoolean(jsonObject, "naturalPathVariationEnabled"),
                 optDouble(jsonObject, "pathVariationAmplitude"),
                 optBoolean(jsonObject, "naturalAltitudeVariationEnabled"),
+                optDoubleOrDefault(jsonObject, RouteSimulationConfig.DEFAULT_ALTITUDE_BASE_METERS, "altitudeBaseMeters"),
                 optDouble(jsonObject, "altitudeVariationRange"),
                 optDouble(jsonObject, "altitudeVariationHeightCentimeters"),
                 optDouble(jsonObject, "altitudeVariationProbability"),
@@ -659,6 +661,15 @@ public final class ShareApiClient {
             }
         }
         return 0d;
+    }
+
+    private double optDoubleOrDefault(@NonNull JSONObject jsonObject, double fallback, String... keys) {
+        for (String key : keys) {
+            if (jsonObject.has(key)) {
+                return jsonObject.optDouble(key, fallback);
+            }
+        }
+        return fallback;
     }
 
     private long optLong(@NonNull JSONObject jsonObject, String... keys) {

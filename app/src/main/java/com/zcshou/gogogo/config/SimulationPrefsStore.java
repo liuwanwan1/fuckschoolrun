@@ -44,6 +44,7 @@ public final class SimulationPrefsStore {
     private static final String KEY_ROUTE_PATH_VARIATION_ENABLED = "route_path_variation_enabled";
     private static final String KEY_ROUTE_PATH_VARIATION_AMPLITUDE = "route_path_variation_amplitude";
     private static final String KEY_ROUTE_ALTITUDE_VARIATION_ENABLED = "route_altitude_variation_enabled";
+    private static final String KEY_ROUTE_ALTITUDE_BASE_METERS = "route_altitude_base_meters";
     private static final String KEY_ROUTE_ALTITUDE_VARIATION_RANGE = "route_altitude_variation_range";
     private static final String KEY_ROUTE_ALTITUDE_VARIATION_HEIGHT_CM = "route_altitude_variation_height_cm";
     private static final String KEY_ROUTE_ALTITUDE_VARIATION_PROBABILITY = "route_altitude_variation_probability";
@@ -115,6 +116,10 @@ public final class SimulationPrefsStore {
 
     public boolean isRouteNaturalAltitudeVariationEnabled() {
         return preferences.getBoolean(KEY_ROUTE_ALTITUDE_VARIATION_ENABLED, false);
+    }
+
+    public String getRouteAltitudeBaseMeters() {
+        return preferences.getString(KEY_ROUTE_ALTITUDE_BASE_METERS, "55.0");
     }
 
     public String getRouteAltitudeVariationRange() {
@@ -258,12 +263,14 @@ public final class SimulationPrefsStore {
 
     public void saveRouteAltitudeVariationSettings(
             boolean enabled,
+            String baseMeters,
             String range,
             String heightCm,
             float probability
     ) {
         preferences.edit()
                 .putBoolean(KEY_ROUTE_ALTITUDE_VARIATION_ENABLED, enabled)
+                .putString(KEY_ROUTE_ALTITUDE_BASE_METERS, normalize(baseMeters, "55.0"))
                 .putString(KEY_ROUTE_ALTITUDE_VARIATION_RANGE, normalize(range, "0.6"))
                 .putString(KEY_ROUTE_ALTITUDE_VARIATION_HEIGHT_CM, normalize(heightCm, "170"))
                 .putFloat(KEY_ROUTE_ALTITUDE_VARIATION_PROBABILITY, clampFrequency(probability))

@@ -116,6 +116,7 @@ import com.acooldog.toolbox.share.domain.model.SharedNfcEntry;
 import com.acooldog.toolbox.share.domain.model.SharedRoutePayload;
 import com.acooldog.toolbox.share.domain.model.SharedRouteSummary;
 import com.acooldog.toolbox.share.domain.model.SharedSimulationConfigEntry;
+import com.acooldog.toolbox.share.domain.model.InternalAccountProfile;
 import com.acooldog.toolbox.share.presentation.ShareModule;
 import com.acooldog.toolbox.service.ServiceGo;
 import com.acooldog.toolbox.utils.GoUtils;
@@ -287,6 +288,7 @@ public class RouteRunActivity extends BaseActivity {
     private Switch settingsPathVariationSwitch;
     private EditText settingsPathVariationInput;
     private Switch settingsAltitudeVariationSwitch;
+    private EditText settingsAltitudeBaseInput;
     private EditText settingsAltitudeVariationRangeInput;
     private EditText settingsAltitudeHeightInput;
     private SeekBar settingsAltitudeProbabilitySeekBar;
@@ -1954,6 +1956,12 @@ public class RouteRunActivity extends BaseActivity {
                     )
                     : 0d;
             boolean naturalAltitudeVariationEnabled = prefsStore.isRouteNaturalAltitudeVariationEnabled();
+            double altitudeBaseMeters = naturalAltitudeVariationEnabled
+                    ? parseNonNegativeDouble(
+                            prefsStore.getRouteAltitudeBaseMeters(),
+                            getString(R.string.route_altitude_base_invalid)
+                    )
+                    : RouteSimulationConfig.DEFAULT_ALTITUDE_BASE_METERS;
             double altitudeVariationRange = naturalAltitudeVariationEnabled
                     ? parseNonNegativeDouble(
                             prefsStore.getRouteAltitudeVariationRange(),
@@ -1988,6 +1996,7 @@ public class RouteRunActivity extends BaseActivity {
                     naturalPathVariationEnabled,
                     pathVariationAmplitude,
                     naturalAltitudeVariationEnabled,
+                    altitudeBaseMeters,
                     altitudeVariationRange,
                     altitudeVariationHeightCentimeters,
                     altitudeVariationProbability,
@@ -2006,6 +2015,7 @@ public class RouteRunActivity extends BaseActivity {
     private boolean isDetailedSimulationConfigError(@Nullable String message) {
         return TextUtils.equals(message, getString(R.string.route_dynamic_intensity_range_invalid))
                 || TextUtils.equals(message, getString(R.string.route_path_variation_invalid))
+                || TextUtils.equals(message, getString(R.string.route_altitude_base_invalid))
                 || TextUtils.equals(message, getString(R.string.route_altitude_variation_range_invalid))
                 || TextUtils.equals(message, getString(R.string.route_altitude_variation_height_invalid));
     }
@@ -2210,6 +2220,7 @@ public class RouteRunActivity extends BaseActivity {
         settingsPathVariationSwitch = dialogView.findViewById(R.id.switch_dialog_path_variation);
         settingsPathVariationInput = dialogView.findViewById(R.id.et_dialog_path_variation);
         settingsAltitudeVariationSwitch = dialogView.findViewById(R.id.switch_dialog_altitude_variation);
+        settingsAltitudeBaseInput = dialogView.findViewById(R.id.et_dialog_altitude_base);
         settingsAltitudeVariationRangeInput = dialogView.findViewById(R.id.et_dialog_altitude_variation_range);
         settingsAltitudeHeightInput = dialogView.findViewById(R.id.et_dialog_altitude_height);
         settingsAltitudeProbabilitySeekBar = dialogView.findViewById(R.id.seek_dialog_altitude_probability);
@@ -2297,6 +2308,7 @@ public class RouteRunActivity extends BaseActivity {
         settingsPathVariationSwitch.setChecked(prefsStore.isRouteNaturalPathVariationEnabled());
         settingsPathVariationInput.setText(prefsStore.getRoutePathVariationAmplitude());
         settingsAltitudeVariationSwitch.setChecked(prefsStore.isRouteNaturalAltitudeVariationEnabled());
+        settingsAltitudeBaseInput.setText(prefsStore.getRouteAltitudeBaseMeters());
         settingsAltitudeVariationRangeInput.setText(prefsStore.getRouteAltitudeVariationRange());
         settingsAltitudeHeightInput.setText(prefsStore.getRouteAltitudeVariationHeightCm());
         settingsAltitudeProbabilitySeekBar.setProgress(
@@ -2484,6 +2496,7 @@ public class RouteRunActivity extends BaseActivity {
         }
         reloadRootFeatureConfig("dialog_open", false);
         selectSimulationSettingsMode(SimulationPrefsStore.ROUTE_SETTINGS_MODE_ROOT.equals(prefsStore.getRouteSettingsMode()));
+        refreshInternalAccountProfileForRootGate();
         refreshRootEnvironmentReport(false);
 
         simulationSettingsDialog = new AlertDialog.Builder(this)
@@ -2523,6 +2536,7 @@ public class RouteRunActivity extends BaseActivity {
             settingsPathVariationSwitch = null;
             settingsPathVariationInput = null;
             settingsAltitudeVariationSwitch = null;
+            settingsAltitudeBaseInput = null;
             settingsAltitudeVariationRangeInput = null;
             settingsAltitudeHeightInput = null;
             settingsAltitudeProbabilitySeekBar = null;
@@ -2597,6 +2611,9 @@ public class RouteRunActivity extends BaseActivity {
         setNonRootSettingsSectionsVisible(!rootMode);
         if (settingsRootContainer != null) {
             settingsRootContainer.setVisibility(rootMode ? View.VISIBLE : View.GONE);
+        }
+        if (rootMode && !renderRootAccessGate()) {
+            return;
         }
         renderRootEnvironmentReport();
         if (rootMode && latestRootEnvironmentReport != null && !latestRootEnvironmentReport.hasRootIndicators()) {
@@ -2834,6 +2851,9 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private void renderRootFeatureConfig() {
+        if (!renderRootAccessGate()) {
+            return;
+        }
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
         RootFeatureRuntimeReport report = latestRootFeatureRuntimeReport;
         if (report == null && rootFeatureRuntimeController != null) {
@@ -3540,6 +3560,9 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private void renderRootEnvironmentReport() {
+        if (!renderRootAccessGate()) {
+            return;
+        }
         boolean internalEnabled = isInternalRootTestingEnabled();
         RootFeatureConfig config = latestRootFeatureConfig == null ? RootFeatureConfig.defaults() : latestRootFeatureConfig;
         boolean controlsUnlocked = isRootControlsUnlocked(config);
@@ -3619,7 +3642,52 @@ public class RouteRunActivity extends BaseActivity {
     }
 
     private boolean isInternalRootTestingEnabled() {
-        return BuildConfig.INTERNAL_ROOT_TESTING_ENABLED;
+        return BuildConfig.INTERNAL_ROOT_TESTING_ENABLED
+                && new InternalAuthStore(getApplicationContext()).canUseRootDiagnostics();
+    }
+
+    private void refreshInternalAccountProfileForRootGate() {
+        if (ioExecutor == null || ioExecutor.isShutdown()) {
+            return;
+        }
+        InternalAuthStore authStore = new InternalAuthStore(getApplicationContext());
+        String token = authStore.getToken();
+        if (TextUtils.isEmpty(token)) {
+            renderRootAccessGate();
+            return;
+        }
+        ioExecutor.execute(() -> {
+            try {
+                InternalAccountProfile profile = ShareModule.from(getApplicationContext())
+                        .shareApiClient()
+                        .getInternalAccountProfile(token);
+                authStore.saveProfile(profile);
+                runOnUiThread(() -> {
+                    if (renderRootAccessGate()) {
+                        renderRootEnvironmentReport();
+                    }
+                });
+            } catch (Exception ignored) {
+                runOnUiThread(this::renderRootAccessGate);
+            }
+        });
+    }
+
+    private boolean renderRootAccessGate() {
+        boolean allowed = isInternalRootTestingEnabled();
+        setRootContainerChildrenVisible(allowed);
+        return allowed;
+    }
+
+    private void setRootContainerChildrenVisible(boolean visible) {
+        if (!(settingsRootContainer instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup rootGroup = (ViewGroup) settingsRootContainer;
+        int visibility = visible ? View.VISIBLE : View.GONE;
+        for (int index = 0; index < rootGroup.getChildCount(); index++) {
+            rootGroup.getChildAt(index).setVisibility(visibility);
+        }
     }
 
     private void confirmRootTestSession() {
@@ -3955,6 +4023,11 @@ public class RouteRunActivity extends BaseActivity {
                     prefsStore.getRoutePathVariationAmplitude(),
                     getString(R.string.route_path_variation_invalid)
             );
+            String altitudeBaseMeters = resolveNonNegativeSetting(
+                    settingsAltitudeBaseInput,
+                    prefsStore.getRouteAltitudeBaseMeters(),
+                    getString(R.string.route_altitude_base_invalid)
+            );
             String altitudeVariationRange = resolveNonNegativeSetting(
                     settingsAltitudeVariationRangeInput,
                     prefsStore.getRouteAltitudeVariationRange(),
@@ -4003,6 +4076,7 @@ public class RouteRunActivity extends BaseActivity {
             prefsStore.saveRoutePathVariationSettings(naturalPathVariationEnabled, pathVariationAmplitude);
             prefsStore.saveRouteAltitudeVariationSettings(
                     naturalAltitudeVariationEnabled,
+                    altitudeBaseMeters,
                     altitudeVariationRange,
                     altitudeHeight,
                     altitudeVariationProbability
@@ -4103,6 +4177,11 @@ public class RouteRunActivity extends BaseActivity {
                 prefsStore.getRoutePathVariationAmplitude(),
                 getString(R.string.route_path_variation_invalid)
         );
+        String altitudeBaseMeters = resolveNonNegativeSetting(
+                settingsAltitudeBaseInput,
+                prefsStore.getRouteAltitudeBaseMeters(),
+                getString(R.string.route_altitude_base_invalid)
+        );
         String altitudeVariationRange = resolveNonNegativeSetting(
                 settingsAltitudeVariationRangeInput,
                 prefsStore.getRouteAltitudeVariationRange(),
@@ -4132,6 +4211,7 @@ public class RouteRunActivity extends BaseActivity {
                 naturalPathVariationEnabled,
                 parsePositiveDouble(pathVariationAmplitude, getString(R.string.route_path_variation_invalid)),
                 naturalAltitudeVariationEnabled,
+                parseNonNegativeDouble(altitudeBaseMeters, getString(R.string.route_altitude_base_invalid)),
                 parseNonNegativeDouble(altitudeVariationRange, getString(R.string.route_altitude_variation_range_invalid)),
                 parseNonNegativeDouble(altitudeHeight, getString(R.string.route_altitude_variation_height_invalid)),
                 altitudeVariationProbability,
@@ -4214,6 +4294,7 @@ public class RouteRunActivity extends BaseActivity {
         prefsStore.saveRoutePathVariationSettings(entry.isNaturalPathVariationEnabled(), trimDouble(entry.getPathVariationAmplitude()));
         prefsStore.saveRouteAltitudeVariationSettings(
                 entry.isNaturalAltitudeVariationEnabled(),
+                trimDouble(entry.getAltitudeBaseMeters()),
                 trimDouble(entry.getAltitudeVariationRange()),
                 trimDouble(entry.getAltitudeVariationHeightCentimeters()),
                 (float) entry.getAltitudeVariationProbability()
@@ -4250,6 +4331,9 @@ public class RouteRunActivity extends BaseActivity {
         }
         if (settingsAltitudeVariationSwitch != null) {
             settingsAltitudeVariationSwitch.setChecked(entry.isNaturalAltitudeVariationEnabled());
+        }
+        if (settingsAltitudeBaseInput != null) {
+            settingsAltitudeBaseInput.setText(trimDouble(entry.getAltitudeBaseMeters()));
         }
         if (settingsAltitudeVariationRangeInput != null) {
             settingsAltitudeVariationRangeInput.setText(trimDouble(entry.getAltitudeVariationRange()));

@@ -1,4 +1,9 @@
 rootProject.name = "fuckschoolrun"
 include ':app'
-include ':algorithm-test-kit'
-include ':sensor-test-engine'
+def localTestKitsEnabled = gradle.startParameter.projectProperties.get('skipLocalTestKits') != 'true'
+if (localTestKitsEnabled && file('algorithm-test-kit').isDirectory()) {
+    include ':algorithm-test-kit'
+}
+if (localTestKitsEnabled && file('sensor-test-engine').isDirectory()) {
+    include ':sensor-test-engine'
+}

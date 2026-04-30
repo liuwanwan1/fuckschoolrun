@@ -71,6 +71,10 @@ backend/**/*.pyc
 # Demo lab sources are tracked, generated outputs stay ignored
 /demo/*
 
+# Local-only diagnostic test kits
+/algorithm-test-kit/
+/sensor-test-engine/
+
 /logs
 /.skills
 /.vscode

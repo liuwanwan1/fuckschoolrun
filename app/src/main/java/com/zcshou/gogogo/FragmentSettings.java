@@ -98,9 +98,6 @@ public class FragmentSettings extends PreferenceFragmentCompat {
         EditTextPreference pfBike = findPreference("setting_bike");
         setupDecimalEditTextPreference(pfBike);
 
-        EditTextPreference pfAltitude = findPreference("setting_altitude");
-        setupDecimalEditTextPreference(pfAltitude);
-
         SwitchPreferenceCompat pLog = findPreference("setting_log_off");
         if (pLog != null) {
             pLog.setOnPreferenceChangeListener((preference, newValue) -> {
@@ -131,7 +128,6 @@ public class FragmentSettings extends PreferenceFragmentCompat {
         setupDocumentPreference("setting_user_agreement", R.string.app_agreement, R.string.app_agreement_content);
         setupDocumentPreference("setting_disclaimer", R.string.app_privacy, R.string.app_privacy_content);
         setupLinkPreference("setting_license_protocol", R.string.setting_license_protocol_link);
-        setupLinkPreference("setting_yingsuo_link", R.string.setting_upstream_link_summary);
         setupLinkPreference("setting_reference_link", R.string.setting_reference_repo_link_summary);
         setupLinkPreference("setting_project_link", R.string.setting_project_link_summary);
         setupLinkPreference("setting_bilibili_link", R.string.app_bilibili_url);

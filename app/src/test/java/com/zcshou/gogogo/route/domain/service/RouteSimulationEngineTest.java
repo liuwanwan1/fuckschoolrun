@@ -99,7 +99,7 @@ public class RouteSimulationEngineTest {
     }
 
     @Test
-    public void next_offsetsAltitudeAroundHeightBaselineWhenNaturalAltitudeVariationIsEnabled() {
+    public void next_offsetsAltitudeAroundConfiguredBaseAndHeightWhenNaturalAltitudeVariationIsEnabled() {
         RouteSimulationEngine engine = new RouteSimulationEngine(
                 buildRoute(),
                 new RouteSimulationConfig(
@@ -113,6 +113,7 @@ public class RouteSimulationEngineTest {
                         false,
                         0.0d,
                         true,
+                        55.0d,
                         0.5d,
                         180d,
                         1.0d,
@@ -130,10 +131,10 @@ public class RouteSimulationEngineTest {
         SimulationFrame frame = engine.next();
         SimulationFrame baselineFrame = baselineEngine.next();
 
-        assertEquals(2.135d, frame.getPoint().getAltitude(), 0.0001d);
+        assertEquals(57.135d, frame.getPoint().getAltitude(), 0.0001d);
         assertEquals(0.0d, baselineFrame.getPoint().getAltitude(), 0.0001d);
-        assertTrue(frame.getPoint().getAltitude() > baselineFrame.getPoint().getAltitude() + 1.8d);
-        assertTrue(frame.getPoint().getAltitude() < baselineFrame.getPoint().getAltitude() + 2.3d);
+        assertTrue(frame.getPoint().getAltitude() > baselineFrame.getPoint().getAltitude() + 56.8d);
+        assertTrue(frame.getPoint().getAltitude() < baselineFrame.getPoint().getAltitude() + 57.3d);
         assertFalse(frame.isFinished());
     }
 

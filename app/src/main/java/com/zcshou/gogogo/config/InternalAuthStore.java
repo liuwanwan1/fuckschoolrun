@@ -51,6 +51,11 @@ public final class InternalAuthStore {
         return !getToken().isEmpty() && getProfile() != null;
     }
 
+    public boolean canUseRootDiagnostics() {
+        InternalAccountProfile profile = getProfile();
+        return !getToken().isEmpty() && profile != null && profile.canUseRootDiagnostics();
+    }
+
     @Nullable
     public InternalAccountProfile getProfile() {
         String username = preferences.getString(KEY_USERNAME, "");

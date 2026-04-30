@@ -25,13 +25,6 @@
             app:summary="@string/setting_bike_default"
             app:iconSpaceReserved="false"/>
 
-        <EditTextPreference
-            app:key="setting_altitude"
-            app:title="@string/setting_altitude"
-            app:defaultValue="@string/setting_altitude_default"
-            app:summary="@string/setting_altitude_default"
-            app:iconSpaceReserved="false"/>
-
     </PreferenceCategory>
 
     <PreferenceCategory
@@ -105,12 +98,6 @@
             app:key="setting_license_protocol"
             app:title="@string/setting_license_protocol"
             app:summary="@string/setting_license_protocol_summary"
-            app:iconSpaceReserved="false"/>
-
-        <Preference
-            app:key="setting_yingsuo_link"
-            app:title="@string/setting_upstream_link"
-            app:summary="@string/setting_upstream_link_summary"
             app:iconSpaceReserved="false"/>
 
         <Preference
