@@ -57,6 +57,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.web.auth import ADMIN_SESSION_KEY, require_admin_session
 
 router = APIRouter(prefix="/admin")
+LOGIN_FSR_CLIENT_VARIANT = "exclusive"
 
 
 @router.post("/login", response_model=AdminSessionResponse)
@@ -144,39 +145,71 @@ def admin_delete_internal_software_name(name_id: str, request: Request):
 
 
 @router.get("/accounts", response_model=InternalAccountListEnvelope)
-def admin_list_accounts(request: Request):
+def admin_list_accounts(request: Request, clientVariant: str = LOGIN_FSR_CLIENT_VARIANT):
     require_admin_session(request)
-    return InternalAccountListEnvelope(items=InternalAccountAdminService(request.state.db).list_accounts())
+    return InternalAccountListEnvelope(
+        items=InternalAccountAdminService(request.state.db, clientVariant).list_accounts()
+    )
 
 
 @router.post("/accounts", response_model=InternalAccountEnvelope, status_code=status.HTTP_201_CREATED)
-def admin_create_account(payload: CreateInternalAccountRequest, request: Request):
+def admin_create_account(
+    payload: CreateInternalAccountRequest,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    return InternalAccountEnvelope(data=InternalAccountAdminService(request.state.db).create_account(payload))
+    return InternalAccountEnvelope(
+        data=InternalAccountAdminService(request.state.db, clientVariant).create_account(payload)
+    )
 
 
 @router.put("/accounts/{account_id}", response_model=InternalAccountEnvelope)
-def admin_update_account(account_id: str, payload: UpdateInternalAccountRequest, request: Request):
+def admin_update_account(
+    account_id: str,
+    payload: UpdateInternalAccountRequest,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    return InternalAccountEnvelope(data=InternalAccountAdminService(request.state.db).update_account(account_id, payload))
+    return InternalAccountEnvelope(
+        data=InternalAccountAdminService(request.state.db, clientVariant).update_account(account_id, payload)
+    )
 
 
 @router.post("/accounts/{account_id}/ban", response_model=InternalAccountEnvelope)
-def admin_ban_account(account_id: str, payload: BanInternalAccountRequest, request: Request):
+def admin_ban_account(
+    account_id: str,
+    payload: BanInternalAccountRequest,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    return InternalAccountEnvelope(data=InternalAccountAdminService(request.state.db).ban_account(account_id, payload))
+    return InternalAccountEnvelope(
+        data=InternalAccountAdminService(request.state.db, clientVariant).ban_account(account_id, payload)
+    )
 
 
 @router.post("/accounts/{account_id}/unban", response_model=InternalAccountEnvelope)
-def admin_unban_account(account_id: str, request: Request):
+def admin_unban_account(
+    account_id: str,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    return InternalAccountEnvelope(data=InternalAccountAdminService(request.state.db).unban_account(account_id))
+    return InternalAccountEnvelope(
+        data=InternalAccountAdminService(request.state.db, clientVariant).unban_account(account_id)
+    )
 
 
 @router.delete("/accounts/{account_id}", response_model=ActionMessageResponse)
-def admin_delete_account(account_id: str, request: Request):
+def admin_delete_account(
+    account_id: str,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    InternalAccountAdminService(request.state.db).delete_account(account_id)
+    InternalAccountAdminService(request.state.db, clientVariant).delete_account(account_id)
     return ActionMessageResponse(message="内部账号已删除")
 
 
@@ -185,27 +218,45 @@ def admin_list_devices(
     request: Request,
     q: str = "",
     statusFilter: str = "all",
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
 ):
     require_admin_session(request)
-    return AuthDeviceListEnvelope(items=AdminDeviceService(request.state.db).list_devices(q, statusFilter))
+    return AuthDeviceListEnvelope(
+        items=AdminDeviceService(request.state.db, clientVariant).list_devices(q, statusFilter)
+    )
 
 
 @router.put("/devices/{device_id}", response_model=AuthDeviceEnvelope)
-def admin_update_device(device_id: str, payload: UpdateAuthDeviceRequest, request: Request):
+def admin_update_device(
+    device_id: str,
+    payload: UpdateAuthDeviceRequest,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    return AuthDeviceEnvelope(data=AdminDeviceService(request.state.db).update_device(device_id, payload))
+    return AuthDeviceEnvelope(
+        data=AdminDeviceService(request.state.db, clientVariant).update_device(device_id, payload)
+    )
 
 
 @router.post("/devices/{device_id}/ban", response_model=AuthDeviceEnvelope)
-def admin_ban_device(device_id: str, request: Request):
+def admin_ban_device(
+    device_id: str,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    return AuthDeviceEnvelope(data=AdminDeviceService(request.state.db).ban_device(device_id))
+    return AuthDeviceEnvelope(data=AdminDeviceService(request.state.db, clientVariant).ban_device(device_id))
 
 
 @router.post("/devices/{device_id}/unban", response_model=AuthDeviceEnvelope)
-def admin_unban_device(device_id: str, request: Request):
+def admin_unban_device(
+    device_id: str,
+    request: Request,
+    clientVariant: str = LOGIN_FSR_CLIENT_VARIANT,
+):
     require_admin_session(request)
-    return AuthDeviceEnvelope(data=AdminDeviceService(request.state.db).unban_device(device_id))
+    return AuthDeviceEnvelope(data=AdminDeviceService(request.state.db, clientVariant).unban_device(device_id))
 
 
 @router.get("/tips", response_model=UsageTipListEnvelope)

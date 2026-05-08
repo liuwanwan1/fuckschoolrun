@@ -129,6 +129,62 @@ class InternalAccountAdminServiceTest(unittest.TestCase):
         self.admin_service.delete_account(created.id)
         self.assertEqual(self.admin_service.list_accounts(), [])
 
+    def test_accounts_are_isolated_by_client_variant(self):
+        login_fsr_admin = InternalAccountAdminService(self.db, "exclusive")
+        toolbox_admin = InternalAccountAdminService(self.db, settings.internal_auth_variant)
+
+        login_account = login_fsr_admin.create_account(
+            CreateInternalAccountRequest(
+                username="shared-tester",
+                password="login-secret",
+                remark="login-fsr account",
+                testerType="ordinary",
+            )
+        )
+        toolbox_account = toolbox_admin.create_account(
+            CreateInternalAccountRequest(
+                username="shared-tester",
+                password="toolbox-secret",
+                remark="fuckschoolrun account",
+                testerType="advanced",
+            )
+        )
+
+        self.assertNotEqual(login_account.id, toolbox_account.id)
+        self.assertEqual(login_account.clientVariant, "exclusive")
+        self.assertEqual(toolbox_account.clientVariant, settings.internal_auth_variant)
+        self.assertEqual([account.id for account in login_fsr_admin.list_accounts()], [login_account.id])
+        self.assertEqual([account.id for account in toolbox_admin.list_accounts()], [toolbox_account.id])
+
+        with self.assertRaises(HTTPException) as wrong_scope:
+            toolbox_admin.ban_account(
+                login_account.id,
+                BanInternalAccountRequest(banReason="scope-check", banDetail=""),
+            )
+        self.assertEqual(wrong_scope.exception.status_code, 404)
+
+        login = self.mobile_service.login(
+            AuthLoginRequest(
+                username="shared-tester",
+                password="login-secret",
+                deviceId="login-device",
+                appVariant="exclusive",
+            ),
+            "127.0.0.1",
+        )
+        toolbox = self.mobile_service.login(
+            AuthLoginRequest(
+                username="shared-tester",
+                password="toolbox-secret",
+                deviceId="toolbox-device",
+                appVariant=settings.internal_auth_variant,
+            ),
+            "127.0.0.1",
+        )
+
+        self.assertEqual(login.account.id, login_account.id)
+        self.assertEqual(toolbox.account.id, toolbox_account.id)
+
 
 if __name__ == "__main__":
     unittest.main()

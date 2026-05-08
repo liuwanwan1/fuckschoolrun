@@ -9,9 +9,9 @@ from app.infrastructure.db.models.auth import AuthDeviceModel
 
 
 class AdminDeviceService:
-    def __init__(self, db):
+    def __init__(self, db, client_variant: str | None = None):
         self._db = db
-        self._variant = normalize_client_variant(settings.internal_auth_variant)
+        self._variant = normalize_client_variant(client_variant or settings.internal_auth_variant)
 
     def list_devices(self, query: str = "", status_filter: str = "all") -> list[AuthDeviceResponse]:
         statement = self._db.query(AuthDeviceModel).filter(AuthDeviceModel.client_variant == self._variant)

@@ -17,9 +17,9 @@ from app.infrastructure.db.models.auth import AuthAccountModel
 
 
 class InternalAccountAdminService:
-    def __init__(self, db):
+    def __init__(self, db, client_variant: str | None = None):
         self._db = db
-        self._variant = normalize_client_variant(settings.internal_auth_variant)
+        self._variant = normalize_client_variant(client_variant or settings.internal_auth_variant)
 
     def list_accounts(self) -> list[AccountResponse]:
         rows = (

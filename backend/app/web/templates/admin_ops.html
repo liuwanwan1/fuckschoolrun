@@ -368,6 +368,12 @@
                     <button data-tab="tips" type="button">使用技巧</button>
                     <button data-tab="software" type="button">内部软件</button>
                 </div>
+                <label for="admin-client-variant">账号域</label>
+                <select id="admin-client-variant">
+                    <option value="exclusive" selected>login-fsr</option>
+                    <option value="{{ client_variant }}">fuckschoolrun</option>
+                </select>
+                <p class="muted">测试者账号和设备封禁只操作当前选中的账号域。</p>
             </div>
         </aside>
 
@@ -418,6 +424,7 @@
                 <div class="stack">
                     <div class="card">
                         <h2>新增测试者账号</h2>
+                        <p class="muted">当前账号域：<strong data-admin-variant-label>login-fsr</strong>。创建、封禁、删除都只影响这个账号域。</p>
                         <label for="create-username">用户名</label>
                         <input id="create-username" type="text" placeholder="测试者账号用户名">
                         <label for="create-password">密码</label>
@@ -443,6 +450,7 @@
                         <h2>测试者账号列表</h2>
                         <span id="accounts-status" class="muted">正在加载...</span>
                     </div>
+                    <p class="muted">当前账号域：<strong data-admin-variant-label>login-fsr</strong></p>
                     <div id="accounts-list" class="list"></div>
                 </div>
             </section>
@@ -453,6 +461,7 @@
                         <h2>设备 / 机器码列表</h2>
                         <span id="devices-status" class="muted">正在加载...</span>
                     </div>
+                    <p class="muted">当前账号域：<strong data-admin-variant-label>login-fsr</strong></p>
                     <div class="toolbar-row">
                         <input id="devices-search" type="text" placeholder="搜索机器码、设备名、IP、封禁原因">
                         <select id="devices-filter">
@@ -558,9 +567,14 @@
 </div>
 
 <script>
+    const LOGIN_FSR_VARIANT = 'exclusive';
+    const FUCKSCHOOLRUN_VARIANT = '{{ client_variant }}';
+
     const state = {
         currentTab: 'notice',
+        adminVariant: LOGIN_FSR_VARIANT,
         accounts: [],
+        authorAccounts: [],
         tips: [],
         softwareNames: [],
         editingTipId: ''
@@ -583,6 +597,29 @@
             .replaceAll('>', '&gt;')
             .replaceAll('"', '&quot;')
             .replaceAll("'", '&#39;');
+    }
+
+    function adminVariantLabel(variant = currentAdminVariant()) {
+        if (variant === LOGIN_FSR_VARIANT) return 'login-fsr';
+        if (variant === FUCKSCHOOLRUN_VARIANT) return 'fuckschoolrun';
+        return variant || '未选择';
+    }
+
+    function currentAdminVariant() {
+        const selector = document.getElementById('admin-client-variant');
+        return selector?.value || state.adminVariant || LOGIN_FSR_VARIANT;
+    }
+
+    function withClientVariant(url, variant = currentAdminVariant()) {
+        const separator = url.includes('?') ? '&' : '?';
+        return `${url}${separator}clientVariant=${encodeURIComponent(variant || LOGIN_FSR_VARIANT)}`;
+    }
+
+    function updateAdminVariantHints() {
+        state.adminVariant = currentAdminVariant();
+        document.querySelectorAll('[data-admin-variant-label]').forEach((element) => {
+            element.textContent = adminVariantLabel(state.adminVariant);
+        });
     }
 
     function switchTab(tab) {
@@ -808,8 +845,9 @@
     }
 
     async function loadAccounts() {
-        setStatus('accounts-status', '正在加载...');
-        const response = await fetch('/api/admin/accounts', { credentials: 'same-origin' });
+        const variant = currentAdminVariant();
+        setStatus('accounts-status', `正在加载 ${adminVariantLabel(variant)}...`);
+        const response = await fetch(withClientVariant('/api/admin/accounts', variant), { credentials: 'same-origin' });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
             setStatus('accounts-status', payload.detail || '加载账号失败', 'error');
@@ -818,8 +856,11 @@
         }
         state.accounts = payload.items || [];
         renderAccountsManaged();
-        renderAuthorOptions();
-        setStatus('accounts-status', `已加载 ${state.accounts.length} 个账号`, 'success');
+        if (variant === FUCKSCHOOLRUN_VARIANT) {
+            state.authorAccounts = state.accounts.slice();
+            renderAuthorOptions();
+        }
+        setStatus('accounts-status', `已加载 ${adminVariantLabel(variant)} ${state.accounts.length} 个账号`, 'success');
     }
 
     function renderAccounts() {
@@ -832,11 +873,12 @@
         state.accounts.forEach(account => {
             const node = document.createElement('div');
             node.className = 'item account-item';
+            const accountVariant = account.clientVariant || currentAdminVariant();
             node.innerHTML = `
                 <div class="item-top">
                     <div>
                         <h3>${escapeHtml(account.username)}</h3>
-                        <p>瀹㈡埛绔爣璇嗭細${escapeHtml(account.clientVariant || '{{ client_variant }}')}</p>
+                        <p>账号域：${escapeHtml(adminVariantLabel(accountVariant))} (${escapeHtml(accountVariant)})</p>
                         <p>备注：${escapeHtml(account.remark || '无')}<br>绑定设备：${escapeHtml(account.boundDeviceName || account.boundDeviceId || '未绑定')}</p>
                     </div>
                     <span class="pill ${account.status === 'banned' ? 'danger' : ''}">${escapeHtml(account.status)}</span>
@@ -860,7 +902,7 @@
             node.querySelector('[data-action="save"]').addEventListener('click', async () => {
                 const statusEl = node.querySelector('[data-status]');
                 setStatus(statusEl, '正在保存...');
-                const response = await fetch(`/api/admin/accounts/${account.id}`, {
+                const response = await fetch(withClientVariant(`/api/admin/accounts/${account.id}`, accountVariant), {
                     method: 'PUT',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
@@ -883,7 +925,7 @@
                 }
                 const statusEl = node.querySelector('[data-status]');
                 setStatus(statusEl, '正在删除...');
-                const response = await fetch(`/api/admin/accounts/${account.id}`, {
+                const response = await fetch(withClientVariant(`/api/admin/accounts/${account.id}`, accountVariant), {
                     method: 'DELETE',
                     credentials: 'same-origin'
                 });
@@ -898,8 +940,9 @@
     }
 
     async function createAccount() {
-        setStatus('account-create-status', '正在创建账号...');
-        const response = await fetch('/api/admin/accounts', {
+        const variant = currentAdminVariant();
+        setStatus('account-create-status', `正在创建 ${adminVariantLabel(variant)} 账号...`);
+        const response = await fetch(withClientVariant('/api/admin/accounts', variant), {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
@@ -919,15 +962,17 @@
         document.getElementById('create-password').value = '';
         document.getElementById('create-tester-type').value = 'ordinary';
         document.getElementById('create-remark').value = '';
-        setStatus('account-create-status', '账号已创建', 'success');
+        setStatus('account-create-status', `账号已创建到 ${adminVariantLabel(variant)}`, 'success');
         await loadAccounts();
     }
 
     async function loadDevices() {
-        setStatus('devices-status', '正在加载...');
+        const variant = currentAdminVariant();
+        setStatus('devices-status', `正在加载 ${adminVariantLabel(variant)}...`);
         const params = new URLSearchParams({
             q: document.getElementById('devices-search').value.trim(),
-            statusFilter: document.getElementById('devices-filter').value
+            statusFilter: document.getElementById('devices-filter').value,
+            clientVariant: variant
         });
         const response = await fetch(`/api/admin/devices?${params.toString()}`, { credentials: 'same-origin' });
         const payload = await response.json().catch(() => ({}));
@@ -940,18 +985,19 @@
         const list = document.getElementById('devices-list');
         if (!items.length) {
             list.innerHTML = '<div class="empty">当前没有机器码记录。</div>';
-            setStatus('devices-status', '当前没有机器码记录');
+            setStatus('devices-status', `${adminVariantLabel(variant)} 当前没有机器码记录`);
             return;
         }
         list.innerHTML = '';
         items.forEach(device => {
             const node = document.createElement('div');
             node.className = 'item';
+            const deviceVariant = device.clientVariant || variant;
             node.innerHTML = `
                 <div class="item-top">
                     <div>
                         <h3>${escapeHtml(device.deviceName || '未命名设备')}</h3>
-                        <p>机器码：${escapeHtml(device.deviceId)}<br>最后 IP：${escapeHtml(device.lastIp || '-')}</p>
+                        <p>机器码：${escapeHtml(device.deviceId)}<br>账号域：${escapeHtml(adminVariantLabel(deviceVariant))} (${escapeHtml(deviceVariant)})<br>最后 IP：${escapeHtml(device.lastIp || '-')}</p>
                     </div>
                     <span class="pill ${device.status === 'active' ? '' : 'danger'}">${escapeHtml(device.status)}</span>
                 </div>
@@ -986,7 +1032,7 @@
             const statusEl = node.querySelector('[data-status]');
             node.querySelector('[data-action="save"]').addEventListener('click', async () => {
                 setStatus(statusEl, '正在保存...');
-                const response = await fetch(`/api/admin/devices/${encodeURIComponent(device.deviceId)}`, {
+                const response = await fetch(withClientVariant(`/api/admin/devices/${encodeURIComponent(device.deviceId)}`, deviceVariant), {
                     method: 'PUT',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
@@ -1007,7 +1053,7 @@
             });
             node.querySelector('[data-action="ban"]').addEventListener('click', async () => {
                 setStatus(statusEl, '正在封禁...');
-                const response = await fetch(`/api/admin/devices/${encodeURIComponent(device.deviceId)}/ban`, {
+                const response = await fetch(withClientVariant(`/api/admin/devices/${encodeURIComponent(device.deviceId)}/ban`, deviceVariant), {
                     method: 'POST',
                     credentials: 'same-origin'
                 });
@@ -1019,7 +1065,7 @@
             });
             node.querySelector('[data-action="unban"]').addEventListener('click', async () => {
                 setStatus(statusEl, '正在解封...');
-                const response = await fetch(`/api/admin/devices/${encodeURIComponent(device.deviceId)}/unban`, {
+                const response = await fetch(withClientVariant(`/api/admin/devices/${encodeURIComponent(device.deviceId)}/unban`, deviceVariant), {
                     method: 'POST',
                     credentials: 'same-origin'
                 });
@@ -1031,14 +1077,15 @@
             });
             list.appendChild(node);
         });
-        setStatus('devices-status', `已加载 ${items.length} 台设备`, 'success');
+        setStatus('devices-status', `已加载 ${adminVariantLabel(variant)} ${items.length} 台设备`, 'success');
     }
 
     function renderAuthorOptions() {
         const select = document.getElementById('tips-author');
+        if (!select) return;
         const currentValue = select.value;
         select.innerHTML = '';
-        state.accounts.forEach(account => {
+        state.authorAccounts.forEach(account => {
             const option = document.createElement('option');
             option.value = account.id;
             option.textContent = `${account.username} · ${account.testerTypeLabel || account.testerType || '未分类账号'}${account.remark ? ' · ' + account.remark : ''}`;
@@ -1047,6 +1094,20 @@
         if (currentValue && Array.from(select.options).some(option => option.value === currentValue)) {
             select.value = currentValue;
         }
+    }
+
+    async function loadAuthorAccounts() {
+        const response = await fetch(withClientVariant('/api/admin/accounts', FUCKSCHOOLRUN_VARIANT), {
+            credentials: 'same-origin'
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            state.authorAccounts = [];
+            renderAuthorOptions();
+            return;
+        }
+        state.authorAccounts = payload.items || [];
+        renderAuthorOptions();
     }
 
     async function loadTips() {
@@ -1241,11 +1302,12 @@
             const node = document.createElement('div');
             node.className = 'item account-item';
             const testerType = account.testerType || '';
+            const accountVariant = account.clientVariant || currentAdminVariant();
             node.innerHTML = `
                 <div class="item-top">
                     <div>
                         <h3>${escapeHtml(account.username)}</h3>
-                        <p>类型：${escapeHtml(account.testerTypeLabel || testerType)}<br>备注：${escapeHtml(account.remark || '无')}<br>绑定设备：${escapeHtml(account.boundDeviceName || account.boundDeviceId || '未绑定')}<br>客户端标识：${escapeHtml(account.clientVariant || '{{ client_variant }}')}</p>
+                        <p>类型：${escapeHtml(account.testerTypeLabel || testerType)}<br>备注：${escapeHtml(account.remark || '无')}<br>绑定设备：${escapeHtml(account.boundDeviceName || account.boundDeviceId || '未绑定')}<br>账号域：${escapeHtml(adminVariantLabel(accountVariant))} (${escapeHtml(accountVariant)})</p>
                     </div>
                     <span class="pill ${account.status === 'banned' ? 'danger' : ''}">${escapeHtml(account.status)}</span>
                 </div>
@@ -1286,7 +1348,7 @@
                     node.querySelector('[data-field="status"]').value = overrideStatus;
                 }
                 setStatus(statusEl, '正在保存...');
-                const response = await fetch(`/api/admin/accounts/${account.id}`, {
+                const response = await fetch(withClientVariant(`/api/admin/accounts/${account.id}`, accountVariant), {
                     method: 'PUT',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
@@ -1314,7 +1376,7 @@
                 const statusEl = node.querySelector('[data-status]');
                 node.querySelector('[data-field="status"]').value = 'banned';
                 setStatus(statusEl, '正在封禁...');
-                const response = await fetch(`/api/admin/accounts/${account.id}/ban`, {
+                const response = await fetch(withClientVariant(`/api/admin/accounts/${account.id}/ban`, accountVariant), {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
@@ -1333,7 +1395,7 @@
                 const statusEl = node.querySelector('[data-status]');
                 node.querySelector('[data-field="status"]').value = 'active';
                 setStatus(statusEl, '正在解封...');
-                const response = await fetch(`/api/admin/accounts/${account.id}/unban`, {
+                const response = await fetch(withClientVariant(`/api/admin/accounts/${account.id}/unban`, accountVariant), {
                     method: 'POST',
                     credentials: 'same-origin'
                 });
@@ -1349,7 +1411,7 @@
                 }
                 const statusEl = node.querySelector('[data-status]');
                 setStatus(statusEl, '正在删除...');
-                const response = await fetch(`/api/admin/accounts/${account.id}`, {
+                const response = await fetch(withClientVariant(`/api/admin/accounts/${account.id}`, accountVariant), {
                     method: 'DELETE',
                     credentials: 'same-origin'
                 });
@@ -1378,6 +1440,11 @@
     document.getElementById('create-account')?.addEventListener('click', createAccount);
     document.getElementById('refresh-accounts')?.addEventListener('click', loadAccounts);
     document.getElementById('devices-refresh')?.addEventListener('click', loadDevices);
+    document.getElementById('admin-client-variant')?.addEventListener('change', async () => {
+        updateAdminVariantHints();
+        await loadAccounts();
+        await loadDevices();
+    });
     document.getElementById('tips-refresh')?.addEventListener('click', loadTips);
     document.getElementById('tips-create-new')?.addEventListener('click', resetTipEditor);
     document.getElementById('tips-save')?.addEventListener('click', saveTip);
@@ -1385,6 +1452,7 @@
     document.getElementById('tips-import-word')?.addEventListener('click', importWord);
     document.getElementById('tips-reset')?.addEventListener('click', resetTipEditor);
     document.getElementById('tips-html')?.addEventListener('input', updateTipsPreview);
+    updateAdminVariantHints();
 
     if ({{ 'true' if authenticated else 'false' }}) {
         switchTab('notice');
@@ -1392,6 +1460,7 @@
         loadRootAccessPolicy();
         loadSoftwareNames();
         loadAccounts().then(() => {
+            loadAuthorAccounts();
             loadDevices();
             loadTips();
         });
