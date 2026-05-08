@@ -53,7 +53,7 @@ com.acooldog.toolbox
 
 ## 后端仓库
 
-校园跑后端已迁移为独立仓库：
+本仓库保留 `backend/` 目录用于本地管理和 login-fsr 账号维护；后端也同步维护到独立仓库：
 
 - `git@gitee.com:daoges_x/campus-backend-running.git`
 

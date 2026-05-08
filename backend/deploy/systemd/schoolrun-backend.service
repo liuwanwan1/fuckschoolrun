@@ -1,0 +1,16 @@
+[Unit]
+Description=SchoolRun FastAPI Backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/www/wwwroot/fuckschoolrun/backend
+EnvironmentFile=/www/wwwroot/fuckschoolrun/backend/.env
+ExecStart=/www/wwwroot/fuckschoolrun/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 5000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
