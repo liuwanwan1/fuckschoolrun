@@ -2,13 +2,7 @@
   <img src="./docs/images/牢大.jpg" height="80" alt="Toolbox logo" />
 </p>
 
-<div align="center">
 
-[![GitHub stars](https://img.shields.io/github/stars/Acooldog/fuckschoolrun?style=for-the-badge&logo=github)](https://github.com/Acooldog/fuckschoolrun/stargazers)
-[![GitHub downloads](https://img.shields.io/github/downloads/Acooldog/fuckschoolrun/total?style=for-the-badge)](https://github.com/Acooldog/fuckschoolrun/releases)
-[![GPLv3 License](https://img.shields.io/badge/license-GPLv3-blue?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0.html)
-
-</div>
 
 # 牢大肘击校园跑
 
