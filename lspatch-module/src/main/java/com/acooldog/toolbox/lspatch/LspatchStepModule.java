@@ -1,14 +1,17 @@
 package com.acooldog.toolbox.lspatch;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.provider.Settings;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -38,6 +41,8 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
  *    确保即使设备无物理传感器，校园跑也能持续收到模拟数据。
  * 5. Hook SensorManager.getDefaultSensor — 当物理计步传感器缺失时返回加速度计，
  *    避免校园跑因检测不到传感器而拒绝启动。
+ * 6. Hook Location.isFromMockProvider / Settings.Secure — 隐藏 GPS Mock Location 痕迹，
+ *    让 SchoolRun 主App 注入的模拟 GPS 位置对校园跑看起来像真实 GPS。
  * <p>
  * 配置热更新: /sdcard/schoolrun_lspatch.json (每5秒重载)
  */
@@ -144,6 +149,9 @@ public final class LspatchStepModule implements IXposedHookLoadPackage {
 
         // Step 3: Hook SensorManager.getDefaultSensor — 计步传感器降级
         hookSensorAvailability(lpparam.classLoader);
+
+        // Step 4: Hook Mock Location 检测点 — 隐藏模拟GPS痕迹
+        hookMockLocationHiding(lpparam.classLoader);
     }
 
     // ── 缓存设备真实传感器 ─────────────────────────────────────
@@ -596,6 +604,127 @@ public final class LspatchStepModule implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    // ── Mock Location 隐藏 ──────────────────────────────────
+
+    /**
+     * Hook GPS Mock Location 检测点，隐藏模拟位置痕迹。
+     * <p>
+     * 校园跑/支付宝可能通过以下方式检测 Mock Location:
+     * <ol>
+     *   <li>{@code Location.isFromMockProvider()} — 检测 test provider 注入</li>
+     *   <li>{@code Location.isMock()} — API 31+ 替代</li>
+     *   <li>{@code Settings.Secure.getString("mock_location")} — 开发者选项</li>
+     *   <li>{@code Settings.Secure.getInt("mock_location")} — 数值查询</li>
+     * </ol>
+     * <p>
+     * 配合 SchoolRun 主App 的 {@code addTestProvider("gps")} +
+     * {@code setTestProviderLocation()} 使用。
+     * 主App 通过 Mock Location API 将 GPS 位置注入系统，
+     * 本模块在支付宝进程内使这些位置对校园跑看起来像真实 GPS。
+     */
+    private void hookMockLocationHiding(ClassLoader classLoader) {
+        // ── Location.isFromMockProvider() → false
+        try {
+            XposedHelpers.findAndHookMethod(
+                    Location.class,
+                    "isFromMockProvider",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            param.setResult(false);
+                        }
+                    });
+            XposedBridge.log(TAG + " Location.isFromMockProvider() → false");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + " isFromMockProvider hook failed: " + t.getMessage());
+        }
+
+        // ── Location.isMock() → false (API 31+)
+        if (Build.VERSION.SDK_INT >= 31) {
+            try {
+                XposedHelpers.findAndHookMethod(
+                        Location.class,
+                        "isMock",
+                        new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam param) {
+                                param.setResult(false);
+                            }
+                        });
+                XposedBridge.log(TAG + " Location.isMock() → false");
+            } catch (Throwable t) {
+                XposedBridge.log(TAG + " isMock hook failed: " + t.getMessage());
+            }
+        }
+
+        // ── Settings.Secure.getString(ContentResolver, String) → "0" for mock_location
+        try {
+            XposedHelpers.findAndHookMethod(
+                    Settings.Secure.class,
+                    "getString",
+                    ContentResolver.class,
+                    String.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if ("mock_location".equals(key)) {
+                                param.setResult("0");
+                            }
+                        }
+                    });
+            XposedBridge.log(TAG + " Settings.Secure.getString → mock_location=0");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + " Settings.Secure.getString hook failed: " + t.getMessage());
+        }
+
+        // ── Settings.Secure.getInt(ContentResolver, String) → 0 for mock_location
+        try {
+            XposedHelpers.findAndHookMethod(
+                    Settings.Secure.class,
+                    "getInt",
+                    ContentResolver.class,
+                    String.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if ("mock_location".equals(key)) {
+                                param.setResult(0);
+                            }
+                        }
+                    });
+            XposedBridge.log(TAG + " Settings.Secure.getInt → mock_location=0");
+        } catch (Throwable ignored) {
+            // getInt(ContentResolver, String) 可能不存在或无权限
+        }
+
+        // ── Settings.Secure.getInt(ContentResolver, String, int) → 0 for mock_location
+        //     带默认值的重载 (API 17+)，更常用
+        try {
+            XposedHelpers.findAndHookMethod(
+                    Settings.Secure.class,
+                    "getInt",
+                    ContentResolver.class,
+                    String.class,
+                    int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if ("mock_location".equals(key)) {
+                                param.setResult(0);
+                            }
+                        }
+                    });
+            XposedBridge.log(TAG + " Settings.Secure.getInt(def) → mock_location=0");
+        } catch (Throwable ignored) {
+            // 不影响主流程
+        }
+
+        XposedBridge.log(TAG + " Mock location hiding hooks installed.");
     }
 
     // ── 配置加载 ─────────────────────────────────────────────
