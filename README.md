@@ -41,6 +41,21 @@ SHARE_API_BASE_URL=http://your-server-host:8080/
 com.acooldog.toolbox
 ```
 
+## LSPatch 免Root模块
+
+本项目提供独立的 LSPatch 模块用于在非 Root 环境下注入模拟步频传感器数据：
+
+- [lspatch-module/README.md](./lspatch-module/README.md)
+
+```bash
+# 构建 LSPatch 模块
+./gradlew :lspatch-module:assembleRelease
+```
+
+产出: `lspatch-module/build/outputs/apk/release/lspatch-module-release-unsigned.apk`
+
+配合 [LSPatch Manager](https://github.com/LSPosed/LSPatch) 将模块嵌入支付宝即可在阳光校园跑中实现完整的步频+GPS一致性模拟。
+
 ## 构建文档
 
 - [docs/build-guide.md](./docs/build-guide.md)

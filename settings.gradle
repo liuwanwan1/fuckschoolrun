@@ -1,5 +1,6 @@
 rootProject.name = "fuckschoolrun"
 include ':app'
+include ':lspatch-module'
 def localTestKitsEnabled = gradle.startParameter.projectProperties.get('skipLocalTestKits') != 'true'
 if (localTestKitsEnabled && file('algorithm-test-kit').isDirectory()) {
     include ':algorithm-test-kit'

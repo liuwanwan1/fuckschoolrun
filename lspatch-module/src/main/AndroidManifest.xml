@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- LSPatch免Root Xposed模块：向支付宝阳光校园跑注入模拟步频 -->
+
+    <application
+        android:allowBackup="false"
+        android:icon="@null"
+        android:label="SchoolRun LSPatch"
+        android:supportsRtl="true">
+
+        <!-- Xposed模块声明 -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="SchoolRun LSPatch Module - 免Root步频传感器注入，适配支付宝阳光校园跑" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <!-- LSPatch作用域：限定支付宝主进程 -->
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/lspatch_scope" />
+
+    </application>
+
+</manifest>
