@@ -234,6 +234,10 @@ public class RouteRunActivity extends BaseActivity {
     private float initialStepCounterValue = -1f;
     private float lastStepCounterValue = -1f;
     private double pendingLinkedDistanceMeters;
+    private long lastStepEventTimestampMillis;
+    private long linkedCadenceWindowStartMillis;
+    private int linkedCadenceWindowSteps;
+    private double measuredLinkedCadenceSpm;
     private PendingMotion pendingMotion;
     private long lastHandledCompletionToken = -1L;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -1943,12 +1947,12 @@ public class RouteRunActivity extends BaseActivity {
         boolean cadenceMode = mode == RouteSimulationConfig.Mode.CADENCE;
         speedControlLayout.setVisibility(cadenceMode ? View.GONE : View.VISIBLE);
         cadenceControlLayout.setVisibility(cadenceMode ? View.VISIBLE : View.GONE);
-        realRunLinkButton.setEnabled(!cadenceMode);
-        realRunLinkButton.setAlpha(cadenceMode ? 0.6f : 1.0f);
+        // Real-run link now supports both SPEED and CADENCE modes.
+        // In CADENCE mode, measured step rate dynamically adjusts the engine speed.
         if (cadenceMode && realRunLinkRunning) {
-            stopLinkedSimulationState();
-            viewModel.pauseSimulation();
-            renderToggleButtonState();
+            // Update engine config to use cadence-derived speed from measured cadence,
+            // or fall back to the user's target cadence setting.
+            applyMeasuredCadenceToEngine();
         }
     }
 
@@ -2173,10 +2177,6 @@ public class RouteRunActivity extends BaseActivity {
             GoUtils.DisplayToast(this, "请先停止当前模拟");
             return;
         }
-        if (getSelectedSimulationMode() != RouteSimulationConfig.Mode.SPEED) {
-            GoUtils.DisplayToast(this, getString(R.string.route_link_mode_speed_only));
-            return;
-        }
         RouteDefinition routeDefinition = viewModel.getSelectedRoute().getValue();
         if (routeDefinition == null) {
             GoUtils.DisplayToast(this, "请先选择路线");
@@ -2186,7 +2186,42 @@ public class RouteRunActivity extends BaseActivity {
             return;
         }
         try {
-            RouteSimulationConfig config = buildSimulationConfig(RouteSimulationConfig.Mode.SPEED);
+            // Real-run link always uses SPEED mode internally since real steps
+            // drive timing. When the user selected CADENCE mode, derive the
+            // initial speed from the cadence setting so the engine produces
+            // correct position advances.
+            boolean cadenceMode = getSelectedSimulationMode() == RouteSimulationConfig.Mode.CADENCE;
+            double cadenceSpm = cadenceMode ? parseSimulationValue(cadenceInput) : 0d;
+            RouteSimulationConfig config;
+            if (cadenceMode) {
+                double stepsPerMeter = parsePositiveDouble(
+                        prefsStore.getRouteStepsPerMeter(),
+                        getString(R.string.route_link_steps_per_meter_invalid)
+                );
+                double cadenceSpeed = cadenceSpm / 60.0d / stepsPerMeter;
+                RouteSimulationConfig baseConfig = buildSimulationConfig(RouteSimulationConfig.Mode.SPEED);
+                config = new RouteSimulationConfig(
+                        RouteSimulationConfig.Mode.SPEED,
+                        Math.max(0.5d, cadenceSpeed),
+                        0d,
+                        baseConfig.getLoopCount(),
+                        baseConfig.isDynamicIntensityEnabled(),
+                        baseConfig.getIntensityVariationRangeMetersPerSecond(),
+                        baseConfig.getIntensityVariationFrequency(),
+                        baseConfig.isNaturalPathVariationEnabled(),
+                        baseConfig.getPathVariationAmplitudeMeters(),
+                        baseConfig.isNaturalAltitudeVariationEnabled(),
+                        baseConfig.getAltitudeBaseMeters(),
+                        baseConfig.getAltitudeVariationRangeMeters(),
+                        baseConfig.getAltitudeVariationHeightCentimeters(),
+                        baseConfig.getAltitudeVariationProbability(),
+                        baseConfig.getLinkRatioNumerator(),
+                        baseConfig.getStepsPerMeter(),
+                        1000L
+                );
+            } else {
+                config = buildSimulationConfig(RouteSimulationConfig.Mode.SPEED);
+            }
             boolean rootLocationScheme = isRootLocationSimulationSelected();
             double ratioNumerator = config.getLinkRatioNumerator();
             boolean resumeCurrentRoute = viewModel.hasResumableSimulationForSelectedRoute();
@@ -2209,6 +2244,10 @@ public class RouteRunActivity extends BaseActivity {
             pendingLinkedDistanceMeters = 0d;
             initialStepCounterValue = -1f;
             lastStepCounterValue = -1f;
+            lastStepEventTimestampMillis = 0L;
+            linkedCadenceWindowStartMillis = 0L;
+            linkedCadenceWindowSteps = 0;
+            measuredLinkedCadenceSpm = cadenceMode ? cadenceSpm : 0d;
             realRunLinkRunning = true;
             realRunLinkButton.setText(R.string.route_link_stop_button);
             requestActivityRecognitionAndStart(ratioNumerator);
@@ -2272,6 +2311,10 @@ public class RouteRunActivity extends BaseActivity {
         initialStepCounterValue = -1f;
         lastStepCounterValue = -1f;
         pendingLinkedDistanceMeters = 0d;
+        lastStepEventTimestampMillis = 0L;
+        linkedCadenceWindowStartMillis = 0L;
+        linkedCadenceWindowSteps = 0;
+        measuredLinkedCadenceSpm = 0d;
         stopRealRunSensorListener();
         realRunLinkButton.setText(R.string.route_link_start_button);
     }
@@ -2301,6 +2344,8 @@ public class RouteRunActivity extends BaseActivity {
         if (!realRunLinkRunning || steps <= 0) {
             return;
         }
+        long now = System.currentTimeMillis();
+        trackMeasuredCadence(steps, now);
         double stepsPerMeter = parsePositiveDouble(
                 prefsStore.getRouteStepsPerMeter(),
                 getString(R.string.route_link_steps_per_meter_invalid)
@@ -2320,6 +2365,70 @@ public class RouteRunActivity extends BaseActivity {
             pendingLinkedDistanceMeters -= thresholdMeters;
             advanceLinkedSimulationOnUiThread(thresholdMeters);
             break;
+        }
+    }
+
+    private void trackMeasuredCadence(int steps, long nowMillis) {
+        if (lastStepEventTimestampMillis > 0L) {
+            long deltaMs = nowMillis - lastStepEventTimestampMillis;
+            if (deltaMs > 0L && deltaMs < 5000L) {
+                if (linkedCadenceWindowStartMillis == 0L) {
+                    linkedCadenceWindowStartMillis = lastStepEventTimestampMillis;
+                }
+                linkedCadenceWindowSteps += steps;
+                long windowMs = nowMillis - linkedCadenceWindowStartMillis;
+                if (windowMs >= 3000L && linkedCadenceWindowSteps >= 3) {
+                    measuredLinkedCadenceSpm = linkedCadenceWindowSteps
+                            / (windowMs / 60000.0d);
+                    linkedCadenceWindowStartMillis = nowMillis;
+                    linkedCadenceWindowSteps = 0;
+                    applyMeasuredCadenceToEngine();
+                }
+            }
+        }
+        lastStepEventTimestampMillis = nowMillis;
+    }
+
+    private void applyMeasuredCadenceToEngine() {
+        if (!realRunLinkRunning
+                || getSelectedSimulationMode() != RouteSimulationConfig.Mode.CADENCE) {
+            return;
+        }
+        if (measuredLinkedCadenceSpm <= 0d) {
+            return;
+        }
+        try {
+            double stepsPerMeter = parsePositiveDouble(
+                    prefsStore.getRouteStepsPerMeter(),
+                    getString(R.string.route_link_steps_per_meter_invalid)
+            );
+            double updatedSpeed = Math.max(0.5d,
+                    measuredLinkedCadenceSpm / 60.0d / stepsPerMeter);
+            RouteSimulationConfig updatedConfig = new RouteSimulationConfig(
+                    RouteSimulationConfig.Mode.SPEED,
+                    updatedSpeed,
+                    0d,
+                    100,
+                    true,
+                    RouteSimulationConfig.DEFAULT_INTENSITY_VARIATION_RANGE_METERS_PER_SECOND,
+                    RouteSimulationConfig.DEFAULT_INTENSITY_VARIATION_FREQUENCY,
+                    false,
+                    0d,
+                    false,
+                    RouteSimulationConfig.DEFAULT_ALTITUDE_BASE_METERS,
+                    0d,
+                    0d,
+                    0d,
+                    1.0d,
+                    1.0d,
+                    1000L
+            );
+            viewModel.updateSimulationConfig(updatedConfig);
+            XLog.d("RouteRunActivity: linked cadence measured="
+                    + Math.round(measuredLinkedCadenceSpm)
+                    + " spm, engine speed updated to " + updatedSpeed + " m/s");
+        } catch (IllegalArgumentException ignored) {
+            // Ignore transient invalid values during measurement.
         }
     }
 
@@ -2796,8 +2905,8 @@ public class RouteRunActivity extends BaseActivity {
                 v -> showSimulationSettingsFormPage("联动比例", false, R.id.section_settings_link));
         addSimulationSettingsEntry(page, rows, nonRootCategory,
                 "步数换算",
-                "每米 " + prefsStore.getRouteStepsPerMeter() + " 步",
-                "步数 步频 米数 steps",
+                "每米 " + prefsStore.getRouteStepsPerMeter() + " 步" + " · 默认步频 " + prefsStore.getRouteDefaultCadence() + " SPM",
+                "步数 步频 米数 steps cadence",
                 v -> showSimulationSettingsFormPage("步数换算", false, R.id.section_settings_steps));
         addSimulationSettingsEntry(page, rows, nonRootCategory,
                 "循环次数",

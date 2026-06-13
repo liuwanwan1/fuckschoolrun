@@ -187,10 +187,10 @@
     <string name="route_link_ratio_hint">1</string>
     <string name="route_link_ratio_help">左侧输入联动的实际距离，右侧会同步当前速度值，达到这个比例后推进一次模拟位置。</string>
     <string name="route_link_steps_per_meter_label">每米步数:</string>
-    <string name="route_link_steps_per_meter_hint">1</string>
+    <string name="route_link_steps_per_meter_hint">1.25</string>
     <string name="route_link_steps_per_meter_invalid">每米步数无效。</string>
-    <string name="route_link_steps_per_meter_help">用于把传感器检测到的步数换算成实际米数。例如设置 10，表示 10 步算 1 米。</string>
-    <string name="route_link_mode_speed_only">真实跑步联动仅支持速度模式。</string>
+    <string name="route_link_steps_per_meter_help">用于把传感器检测到的步数换算成实际米数，同时影响步频模式下的速度计算。例如设置 1.25，表示每米 1.25 步（步长约 0.8 米，适合身高 ~170cm）。</string>
+    <string name="route_link_mode_speed_only">真实跑步联动在步频模式下将使用实测步频动态调整模拟速度。</string>
     <string name="route_link_sensor_unavailable">当前设备不支持计步传感器。</string>
     <string name="route_link_permission_denied">未授予运动识别权限，无法启动真实跑步联动。</string>
     <string name="route_link_started">真实跑步联动已启动。</string>

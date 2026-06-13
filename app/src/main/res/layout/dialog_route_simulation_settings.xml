@@ -154,7 +154,7 @@
                         android:gravity="center"
                         android:hint="@string/route_link_steps_per_meter_hint"
                         android:inputType="numberDecimal"
-                        android:text="1" />
+                        android:text="1.25" />
                 </LinearLayout>
 
                 <TextView

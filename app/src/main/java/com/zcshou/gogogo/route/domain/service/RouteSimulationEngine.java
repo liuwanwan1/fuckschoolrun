@@ -10,7 +10,7 @@ import java.util.Random;
 
 public final class RouteSimulationEngine {
     private static final double EARTH_RADIUS_METERS = 6371000d;
-    private static final double ESTIMATED_STEP_LENGTH_METERS = 0.8d;
+    private static final double DEFAULT_STEP_LENGTH_METERS = 0.8d;
     private static final double MINIMUM_SIMULATION_SPEED_METERS_PER_SECOND = 0.5d;
     private static final double MINIMUM_DYNAMIC_SPEED_RATIO = 0.35d;
     private static final double INTENSITY_SETTLE_EPSILON_METERS_PER_SECOND = 0.05d;
@@ -145,6 +145,29 @@ public final class RouteSimulationEngine {
         if (!config.isDynamicIntensityEnabled()
                 || config.getIntensityVariationRangeMetersPerSecond() <= 0d
                 || config.getIntensityVariationFrequency() <= 0d) {
+            // In CADENCE mode, apply a natural micro-fluctuation even when the
+            // explicit intensity slider is off. Real runners vary cadence by
+            // ±3–8 SPM naturally, which translates to ~±2–5% speed variation.
+            if (config.getMode() == RouteSimulationConfig.Mode.CADENCE) {
+                double cadenceRange = baseSpeed * 0.035d;
+                if (Math.abs(targetIntensityOffsetMetersPerSecond
+                        - currentIntensityOffsetMetersPerSecond) <= 0.01d
+                        || random.nextDouble() < 0.30d) {
+                    targetIntensityOffsetMetersPerSecond = randomInRange(cadenceRange);
+                }
+                currentIntensityOffsetMetersPerSecond +=
+                        (targetIntensityOffsetMetersPerSecond
+                                - currentIntensityOffsetMetersPerSecond) * 0.20d;
+                currentIntensityOffsetMetersPerSecond = clamp(
+                        currentIntensityOffsetMetersPerSecond,
+                        -cadenceRange,
+                        cadenceRange
+                );
+                double minSpeed = Math.max(MINIMUM_SIMULATION_SPEED_METERS_PER_SECOND,
+                        baseSpeed * MINIMUM_DYNAMIC_SPEED_RATIO);
+                return clamp(baseSpeed + currentIntensityOffsetMetersPerSecond,
+                        minSpeed, baseSpeed + cadenceRange);
+            }
             currentIntensityOffsetMetersPerSecond = 0d;
             targetIntensityOffsetMetersPerSecond = 0d;
             return baseSpeed;
@@ -176,9 +199,14 @@ public final class RouteSimulationEngine {
             return 0d;
         }
 
-        // Average cadence = total steps / total duration(minutes).
-        // Route simulation has no stride input, so total steps are estimated from distance and a fixed step length.
-        double totalSteps = totalDistanceMeters / ESTIMATED_STEP_LENGTH_METERS;
+        // Use user-configured steps-per-meter to derive step length.
+        // Default fallback: 1.25 steps/meter ≈ 0.8m stride (typical for ~170cm height).
+        double stepsPerMeter = config.getStepsPerMeter();
+        if (stepsPerMeter <= 0d) {
+            stepsPerMeter = 1.0d / DEFAULT_STEP_LENGTH_METERS;
+        }
+        double stepLengthMeters = 1.0d / stepsPerMeter;
+        double totalSteps = totalDistanceMeters / stepLengthMeters;
         double totalDurationMinutes = totalSteps / config.getCadenceStepsPerMinute();
         if (totalDurationMinutes <= 0d) {
             return 0d;

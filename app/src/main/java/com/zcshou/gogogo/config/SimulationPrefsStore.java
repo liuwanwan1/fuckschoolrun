@@ -32,6 +32,7 @@ public final class SimulationPrefsStore {
     private static final String KEY_ROUTE_MODE = "route_mode";
     private static final String KEY_ROUTE_SPEED = "route_speed";
     private static final String KEY_ROUTE_CADENCE = "route_cadence";
+    private static final String KEY_ROUTE_DEFAULT_CADENCE = "route_default_cadence";
     private static final String KEY_ROUTE_LOOP_COUNT = "route_loop_count";
     private static final String KEY_ROUTE_SPEED_FLOAT = "route_speed_float";
     private static final String KEY_ROUTE_LAST_ID = "route_last_id";
@@ -91,7 +92,21 @@ public final class SimulationPrefsStore {
     }
 
     public String getRouteCadence() {
-        return preferences.getString(KEY_ROUTE_CADENCE, "");
+        String cadence = preferences.getString(KEY_ROUTE_CADENCE, "");
+        if (cadence.trim().isEmpty()) {
+            return getRouteDefaultCadence();
+        }
+        return cadence;
+    }
+
+    public String getRouteDefaultCadence() {
+        return preferences.getString(KEY_ROUTE_DEFAULT_CADENCE, "180");
+    }
+
+    public void saveRouteDefaultCadence(String defaultCadence) {
+        preferences.edit()
+                .putString(KEY_ROUTE_DEFAULT_CADENCE, normalize(defaultCadence, "180"))
+                .apply();
     }
 
     public boolean isRouteSpeedFloat() {
@@ -147,7 +162,7 @@ public final class SimulationPrefsStore {
     }
 
     public String getRouteStepsPerMeter() {
-        return preferences.getString(KEY_ROUTE_STEPS_PER_METER, "1");
+        return preferences.getString(KEY_ROUTE_STEPS_PER_METER, "1.25");
     }
 
     public String getLastRouteId() {
@@ -279,7 +294,7 @@ public final class SimulationPrefsStore {
 
     public void saveRouteStepsPerMeter(String stepsPerMeter) {
         preferences.edit()
-                .putString(KEY_ROUTE_STEPS_PER_METER, normalize(stepsPerMeter, "1"))
+                .putString(KEY_ROUTE_STEPS_PER_METER, normalize(stepsPerMeter, "1.25"))
                 .apply();
     }
 
