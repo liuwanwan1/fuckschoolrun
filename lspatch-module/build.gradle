@@ -42,8 +42,8 @@ android {
 }
 
 dependencies {
-    // Xposed API - provided by LSPatch at runtime, compileOnly to avoid bundling
+    // Shared root diagnostic module — provides RootDiagnosticLsposedModule
+    implementation project(':xposed-core')
+    // Xposed API — provided by LSPatch at runtime, compileOnly to avoid bundling
     compileOnly 'de.robv.android.xposed:api:82'
-    // Minimal AndroidX for SharedPreferences access
-    implementation 'androidx.annotation:annotation:1.7.0'
 }

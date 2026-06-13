@@ -1,0 +1,35 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.acooldog.toolbox.xposedcore'
+    compileSdk 36
+    buildToolsVersion '36.1.0'
+
+    defaultConfig {
+        minSdkVersion 28
+        targetSdkVersion 36
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+dependencies {
+    // Xposed API — provided by LSPosed/LSPatch at runtime
+    compileOnly 'de.robv.android.xposed:api:82'
+    // Minimal AndroidX for annotations
+    implementation 'androidx.annotation:annotation:1.7.0'
+}

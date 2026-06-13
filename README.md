@@ -43,16 +43,21 @@ com.acooldog.toolbox
 
 ## LSPatch 免Root模块
 
-本项目提供独立的 LSPatch 模块用于在非 Root 环境下注入模拟步频传感器数据：
+本项目提供 LSPatch 免 Root 模块，复用上游 `RootDiagnosticLsposedModule` 全面功能：
 
-- [lspatch-module/README.md](./lspatch-module/README.md)
+- **传感器注入** — 加速度计/计步器/步检测器数据注入
+- **GPS/NMEA 模拟** — Location / GMS / 高德 / 百度 / 腾讯 SDK
+- **WiFi/基站信号** — BSSID / RSSI / CellSignalStrength 模拟
+- **检测绕过** — Mock Location / Debug / Root 文件检测
+
+详见: [lspatch-module/README.md](./lspatch-module/README.md)
 
 ```bash
 # 构建 LSPatch 模块
 ./gradlew :lspatch-module:assembleRelease
 ```
 
-产出: `lspatch-module/build/outputs/apk/release/lspatch-module-release-unsigned.apk`
+产出: `lspatch-module/build/outputs/apk/release/lspatch-module-release.apk`
 
 配合 [LSPatch Manager](https://github.com/LSPosed/LSPatch) 将模块嵌入支付宝即可在阳光校园跑中实现完整的步频+GPS一致性模拟。
 
