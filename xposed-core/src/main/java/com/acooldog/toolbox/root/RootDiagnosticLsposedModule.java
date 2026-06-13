@@ -121,25 +121,87 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
 
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) {
-        String packageName = lpparam == null ? "" : lpparam.packageName;
-        if (packageName == null || shouldSkipPackage(packageName)) {
-            return;
+        try {
+            String packageName = lpparam == null ? "" : lpparam.packageName;
+            if (packageName == null || shouldSkipPackage(packageName)) {
+                return;
+            }
+            if (!installedPackageHooks.add(packageName)) {
+                XposedBridge.log("SchoolRunDiag duplicate load skipped for package: " + packageName);
+                return;
+            }
+            XposedBridge.log("SchoolRunDiag LSPosed loaded for package: " + packageName);
+            installSessionReceiver(packageName);
+            installLocationHooks(packageName);
+            installSignalHooks(packageName);
+            installSdkLocationHooks(packageName, lpparam.classLoader);
+            installDetectionBypassHooks(packageName);
+            installServiceStreamHooks(packageName);
+            installSensorHooks(packageName, lpparam.classLoader);
+            installProcessLogHooks(packageName);
+            logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_loaded",
+                    "LSPosed模块已在作用域进程加载：" + packageName);
+            // LSPatch auto-activation: if no LSPosed broadcast arrives within 3s, self-start
+            scheduleLspatchAutoStart(packageName);
+        } catch (Throwable t) {
+            XposedBridge.log("SchoolRunDiag handleLoadPackage fatal: "
+                    + t.getClass().getName() + ": " + t.getMessage());
+            try {
+                for (int i = 0; i < Math.min(t.getStackTrace().length, 8); i++) {
+                    XposedBridge.log("SchoolRunDiag   at " + t.getStackTrace()[i]);
+                }
+            } catch (Throwable ignored) {
+                // Best-effort logging
+            }
         }
-        if (!installedPackageHooks.add(packageName)) {
-            XposedBridge.log("SchoolRunDiag duplicate load skipped for package: " + packageName);
-            return;
+    }
+
+    /**
+     * LSPatch auto-start: after 3 seconds on the main looper, if no LSPosed broadcast has
+     * activated this module, automatically enable SENSOR_INJECTION, LOCATION_NMEA,
+     * RADIO_WIFI_SIGNAL, and DETECTION_BYPASS with default settings.
+     */
+    private void scheduleLspatchAutoStart(String packageName) {
+        try {
+            Handler handler = new Handler(Looper.getMainLooper());
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (active) {
+                            XposedBridge.log("SchoolRunDiag LSPatch skip auto-start"
+                                    + " — already active via broadcast for: " + packageName);
+                            return;
+                        }
+                        activeSessionId = "lspatch-"
+                                + packageName + "-" + System.currentTimeMillis();
+                        Set<RootDiagnosticModule> modules =
+                                Collections.newSetFromMap(new ConcurrentHashMap<>());
+                        modules.add(RootDiagnosticModule.SENSOR_INJECTION);
+                        modules.add(RootDiagnosticModule.LOCATION_NMEA);
+                        modules.add(RootDiagnosticModule.RADIO_WIFI_SIGNAL);
+                        modules.add(RootDiagnosticModule.DETECTION_BYPASS);
+                        activeModules = modules;
+                        activeSettings = RootDiagnosticSettings.defaults();
+                        active = true;
+                        resetSensorState();
+                        scheduleLocationPulseLoop(packageName);
+                        scheduleSensorPulseLoop(packageName);
+                        XposedBridge.log("SchoolRunDiag LSPatch auto-started for: "
+                                + packageName + " modules=4");
+                        logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK,
+                                "lspatch_auto_started",
+                                "LSPatch模块已自动激活，模块数=" + modules.size());
+                    } catch (Throwable t) {
+                        XposedBridge.log("SchoolRunDiag LSPatch auto-start callback failed: "
+                                + t.getMessage());
+                    }
+                }
+            }, 3000L);
+        } catch (Throwable t) {
+            XposedBridge.log("SchoolRunDiag LSPatch auto-start schedule failed: "
+                    + t.getMessage());
         }
-        XposedBridge.log("SchoolRunDiag LSPosed loaded for package: " + packageName);
-        installSessionReceiver(packageName);
-        installLocationHooks(packageName);
-        installSignalHooks(packageName);
-        installSdkLocationHooks(packageName, lpparam.classLoader);
-        installDetectionBypassHooks(packageName);
-        installServiceStreamHooks(packageName);
-        installSensorHooks(packageName, lpparam.classLoader);
-        installProcessLogHooks(packageName);
-        logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "lsposed_loaded",
-                "LSPosed模块已在作用域进程加载：" + packageName);
     }
 
     private void installSessionReceiver(String packageName) {
@@ -148,22 +210,28 @@ public final class RootDiagnosticLsposedModule implements IXposedHookLoadPackage
                 @SuppressLint("UnspecifiedRegisterReceiverFlag")
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
-                    Application application = (Application) param.thisObject;
-                    diagnosticEventContext = application.getApplicationContext();
-                    if (!registeredControlReceiverPackages.add(packageName)) {
-                        return;
-                    }
-                    BroadcastReceiver receiver = new BroadcastReceiver() {
-                        @Override
-                        public void onReceive(Context context, Intent intent) {
-                            handleControlIntent(packageName, intent);
+                    try {
+                        Application application = (Application) param.thisObject;
+                        diagnosticEventContext = application.getApplicationContext();
+                        if (!registeredControlReceiverPackages.add(packageName)) {
+                            return;
                         }
-                    };
-                    IntentFilter filter = new IntentFilter(LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_CONTROL);
-                    registerControlReceiver(application, receiver, filter);
-                    logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK, "receiver_registered",
-                            "LSPosed诊断控制广播已注册。");
-                    LsposedDiagnosticBridge.broadcastStateRequest(application, packageName);
+                        BroadcastReceiver receiver = new BroadcastReceiver() {
+                            @Override
+                            public void onReceive(Context context, Intent intent) {
+                                handleControlIntent(packageName, intent);
+                            }
+                        };
+                        IntentFilter filter = new IntentFilter(
+                                LsposedDiagnosticBridge.ACTION_DIAGNOSTIC_CONTROL);
+                        registerControlReceiver(application, receiver, filter);
+                        logEvent(packageName, RootDiagnosticEvent.MODULE_FRAMEWORK,
+                                "receiver_registered", "LSPosed诊断控制广播已注册。");
+                        LsposedDiagnosticBridge.broadcastStateRequest(application, packageName);
+                    } catch (Throwable t) {
+                        XposedBridge.log("SchoolRunDiag Application.onCreate hook"
+                                + " callback failed: " + t.getMessage());
+                    }
                 }
             });
         } catch (Throwable throwable) {
